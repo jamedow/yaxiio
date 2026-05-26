@@ -628,3 +628,29 @@ docker exec yaxiio pm2 list
 ---
 
 > 文档维护：每次 Yaxiio 版本升级时同步更新
+
+
+## 附：MCP 工具清单
+
+### Browser Harness (Playwright)
+| 工具 | 说明 |
+|------|------|
+| browser_navigate | 导航到URL |
+| browser_click | 点击元素 |
+| browser_type | 输入文本 |
+| browser_screenshot | 截图 |
+| browser_extract_text | 提取页面文本 |
+| browser_extract_links | 提取所有链接 |
+| browser_extract_html | 提取页面HTML |
+| browser_evaluate | 执行JavaScript |
+| browser_wait | 等待元素 |
+| browser_scroll | 滚动页面 |
+| browser_get_url | 获取当前URL |
+| browser_get_title | 获取页面标题 |
+
+### MongoDB MCP
+| 工具 | 说明 |
+|------|------|
+| (标准 @anthropic/mcp-server-mongodb 工具集) | MongoDB 查询和操作 |
+
+> 注册方式：`redis-cli HSET mcp:registry <name> '<json>'`

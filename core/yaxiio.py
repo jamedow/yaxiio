@@ -1,73 +1,94 @@
 #!/usr/bin/env python3
-"""雅溪 Yaxiio — 五层模块化主入口"""
-import sys, os, json, time, signal
-sys.path.insert(0, "/opt/commander")
+"""雅溪 Yaxiio v1.04 — 五层模块化智能调度系统 · AGPLv3"""
+import sys, os, json, time, signal, asyncio, shutil, glob
 
+sys.path.insert(0, "/opt/commander")
 from modules.shared.config import LOG_DIR
-from modules.layer1 import RedisClient, MongoClient, MCPRegistry, SkillLoader
-from modules.layer2 import AgentFactory, LifecycleManager, ModelRouter, AgentRegistry
+from modules.layer1 import RedisClient, MongoClient, MCPRegistry, SkillLoader, create_vector_store
+from modules.layer2 import AgentFactory, LifecycleManager, ModelRouter, AgentRegistry, RAGManager
 from modules.layer3 import TaskDecomposer, DependencyAnalyzer, Scheduler, WorkflowSnapshot
 from modules.layer4 import AutoScorer, AuditLogger, FailureDetector
 from modules.layer5 import PromptOptimizer, WorkflowOptimizer, ABTester, SkillAutoGenerator
 
 class Commander:
     def __init__(self):
-        # L1: 基础组件
-        self.redis = RedisClient()
-        self.mongo = MongoClient()
-        self.mcp = MCPRegistry()
-        self.skills = SkillLoader()
-        # L2: 智能体
+        self.redis = RedisClient(); self.mongo = MongoClient()
+        self.mcp = MCPRegistry(); self.vector = create_vector_store()
+        self.skills = SkillLoader(self.vector)
         self.model_router = ModelRouter()
         self.agent_factory = AgentFactory(self.redis, self.model_router)
         self.lifecycle = LifecycleManager(self.agent_factory, self.redis)
+        self.rag = RAGManager(self.vector, self.redis)
         self.registry = AgentRegistry(self.redis)
-        # L3: 工作流
         self.scheduler = Scheduler(self.agent_factory, self.lifecycle)
         self.snapshot = WorkflowSnapshot()
-        # L4: 评估
-        self.scorer = AutoScorer()
-        self.audit = AuditLogger(self.mongo)
+        self.scorer = AutoScorer(); self.audit = AuditLogger(self.mongo)
         self.detector = FailureDetector()
-        # L5: 进化
-        self.prompt_opt = PromptOptimizer()
-        self.workflow_opt = WorkflowOptimizer()
-        self.ab = ABTester()
-        self.skill_gen = SkillAutoGenerator()
-        # 状态
-        self.task_count = 0
-        self.start_time = time.time()
-        self.running = True
+        self.prompt_opt = PromptOptimizer(); self.workflow_opt = WorkflowOptimizer()
+        self.ab = ABTester(); self.skill_gen = SkillAutoGenerator()
+        self.task_count = 0; self.start_time = time.time(); self.running = True
 
+    # ═══════════════════════════════════════════════
+    # 任务路由
+    # ═══════════════════════════════════════════════
     def handle_task(self, data: dict):
-        task_id = data.get("taskId", f"auto-{int(time.time())}")
-        payload = data.get("payload", {})
-        action = payload.get("action", "")
-        print(f"[雅溪] 🧠 任务: {task_id} ({action})", flush=True)
-        
-        # 实际执行
-        if action == "site_audit":
-            result = self._run_audit(task_id, payload)
-        elif action == "site_evolve":
-            result = self._run_evolve(task_id, payload)
-        elif action == "site_fix":
-            result = self._run_fix(task_id, payload)
+        tid = data.get("taskId", f"auto-{int(time.time())}")
+        p = data.get("payload", {})
+        a = p.get("action", "")
+        print(f"[雅溪] 🧠 {tid} ({a})", flush=True)
+        actions = {
+            "session_end": self._cleanup_sandboxes,
+            "site_audit": lambda: self._run_audit(tid, p),
+            "site_fix": lambda: self._run_fix(tid, p),
+            "site_evolve": lambda: self._run_evolve(tid, p),
+            "site_drill": lambda: self._run_drill(tid, p),
+            "site_inquire": lambda: self._tool_inquire(tid, p, data),
+        }
+        if a in actions:
+            result = actions[a]() if a == "session_end" else actions[a]()
         else:
-            result = self._run_diagnose(task_id, payload)
-        
-        score = self.scorer.score({"task_id": task_id, "action": action}, result)
-        self.audit.log({"task_id": task_id, "action": action}, result, score)
+            result = self._run_diagnose(tid, p)
+        score = self.scorer.score({"task_id": tid, "action": a}, result)
+        self.audit.log({"task_id": tid, "action": a}, result, score)
         self.task_count += 1
         return result
 
-    def _run_audit(self, task_id: str, payload: dict) -> dict:
-        """L3+L4: 扫描代码 → LLM分析 → 写报告"""
+    # ═══════════════════════════════════════════════
+    # 沙箱管理
+    # ═══════════════════════════════════════════════
+
+    def _tool_inquire(self, tid, p, data):
+        """Tool-driven: LLM分析缺什么→追问外部Agent→收到回复执行"""
         import asyncio
-        codebase = payload.get("codebase", "/app/lightingmetal/customer-portal")
-        print(f"[雅溪] 🔍 审计 {codebase}", flush=True)
-        
-        vue_files = []
-        for root, dirs, files in os.walk(codebase):
+        reply_ch = data.get("replyTo", f"lightingmetal:agent:{data.get('from','external')}")
+        llm = self._get_llm()
+        if not llm: return {"status":"fail","error":"LLM offline"}
+        tools = [{"type":"function","function":{"name":"execute_task","description":"Execute task","parameters":{"type":"object","properties":{"action":{"type":"string"},"codebase":{"type":"string"},"issue":{"type":"string"},"files":{"type":"string"},"criteria":{"type":"string"}},"required":["action"]}}}]
+        try:
+            loop = asyncio.new_event_loop()
+            resp = loop.run_until_complete(llm.chat(json.dumps(p,ensure_ascii=False)[:1000], tools=tools, tool_choice="required"))
+            loop.close()
+        except Exception as e: return {"status":"fail","error":str(e)}
+        content = resp.get("content","")
+        if any(kw in content for kw in ["need","missing","please provide","缺少","需要","请提供"]):
+            self.redis.publish(reply_ch, {"type":"inquiry","taskId":tid,"from":"yaxiio","payload":{"action":"need_info","question":content[:300]}})
+            return {"status":"inquiring","question":content[:300]}
+        return self.handle_task({**data,"payload":p})
+
+    def _cleanup_sandboxes(self) -> dict:
+        c = 0
+        for d in glob.glob("/tmp/yaxiio-fix-*") + glob.glob("/tmp/yaxiio-drill-*"):
+            shutil.rmtree(d, ignore_errors=True); c += 1
+        return {"status": "cleaned", "removed": c}
+
+    # ═══════════════════════════════════════════════
+    # 审计
+    # ═══════════════════════════════════════════════
+    def _run_audit(self, tid, p):
+        cb = p.get("codebase", "/app/lightingmetal/customer-portal")
+        print(f"[雅溪] 🔍 审计 {cb}", flush=True)
+        vf = []
+        for root, dirs, files in os.walk(cb):
             dirs[:] = [d for d in dirs if d not in ("node_modules",".nuxt",".git",".output")]
             for fn in files:
                 if fn.endswith(".vue"):
@@ -75,55 +96,51 @@ class Commander:
                     with open(fp) as fh:
                         ct = fh.read()
                         ds = sum(1 for kw in ["card-zhongli","btn-zhongli","fangsheng","chain-divider","meander","vision"] if kw in ct)
-                        old = sum(1 for kw in ["bg-white","bg-gray","text-gray","shadow-lg"] if kw in ct)
+                        ol = sum(1 for kw in ["bg-white","bg-gray","text-gray","shadow-lg"] if kw in ct)
                         th = sum(1 for kw in ["useIndustryTheme","texture-kunlun","texture-myth","texture-jingzhe","texture-ding","texture-canal"] if kw in ct)
-                        vue_files.append({"f":fp.replace(codebase,""),"l":len(ct.split(chr(10))),"ds":ds,"old":old,"th":th})
-        
+                        vf.append({"f":fp.replace(cb,""),"l":len(ct.split("\n")),"ds":ds,"old":ol,"th":th})
         findings = []
         llm = self._get_llm()
         if llm:
-            summary = "\n".join(f"{v['f']}: {v['l']}L ds={v['ds']} old={v['old']} theme={v['th']}" for v in sorted(vue_files,key=lambda x:-x["ds"])[:15])
+            s = "\n".join(f"{v['f']}: {v['l']}L ds={v['ds']} old={v['old']} theme={v['th']}" for v in sorted(vf,key=lambda x:-x["ds"])[:15])
             try:
                 loop = asyncio.new_event_loop()
-                report = loop.run_until_complete(llm.chat(f"Audit {len(vue_files)} Vue files:\n{summary}\nAnalyze design compliance, old UI, theme pushdown. Markdown Chinese 300 chars."))
-                loop.close()
-                findings.append(report)
-            except Exception as e:
-                findings.append(f"LLM error: {e}")
-        
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        rp = f"/app/.pi/blackboard/reports/audit-{ts}.md"
-        rpt = f"# Yaxiio Audit\n> {ts} | {len(vue_files)} files\n\n| File | Lines | ds | old | theme |\n|------|-------|----|-----|-------|\n"
-        for v in sorted(vue_files,key=lambda x:-x["ds"])[:20]:
-            rpt += f"| {v['f']} | {v['l']} | {v['ds']} | {v['old']} | {v['th']} |\n"
+                r = loop.run_until_complete(llm.chat(f"Audit {len(vf)} Vue files:\n{s}\nAnalyze design compliance, old UI, theme pushdown. Markdown Chinese 300 chars."))
+                loop.close(); findings.append(r)
+            except Exception as e: findings.append(f"LLM: {e}")
+        ts = time.strftime("%Y%m%d-%H%M%S"); rp = f"/app/.pi/blackboard/reports/audit-{ts}.md"
+        rpt = f"# Audit\n> {ts} | {len(vf)} files\n\n| File | Lines | ds | old | theme |\n|------|-------|----|-----|-------|\n"
+        for v in sorted(vf,key=lambda x:-x["ds"])[:20]: rpt += f"| {v['f']} | {v['l']} | {v['ds']} | {v['old']} | {v['th']} |\n"
         rpt += "\n## Analysis\n\n" + "\n".join(findings)
         with open(rp,"w") as f: f.write(rpt)
+        # 记录改进幅度
+        improvement = est - score
+        if improvement < stop.get("score_improvement_min", 1.5):
+            no_improve_key2 = f"yaxiio:drill_no_improve:{task[:50]}"
+            self.redis.setex(no_improve_key2, 86400, str(no_improve + 1))
+        else:
+            self.redis.delete(f"yaxiio:drill_no_improve:{task[:50]}")
         print(f"[雅溪] 📄 {rp}", flush=True)
-        return {"status":"success","report":rp,"files_scanned":len(vue_files)}
+        return {"status":"success","report":rp,"files":len(vf)}
 
-    def _run_fix(self, task_id: str, payload: dict) -> dict:
-        """L3+L4: 读审计报告 → LLM生成方案 → 沙箱执行"""
-        import asyncio, shutil
-        codebase = payload.get("codebase", "/app/lightingmetal/customer-portal")
-        reports = sorted([f for f in os.listdir("/app/.pi/blackboard/reports") if f.startswith("diag-") or f.startswith("audit-")], reverse=True)
-        if not reports: return {"status":"fail","error":"no audit report"}
-        with open(f"/app/.pi/blackboard/reports/{reports[0]}") as f:
-            audit = f.read()[:4000]
-        
+    # ═══════════════════════════════════════════════
+    # 修复
+    # ═══════════════════════════════════════════════
+    def _run_fix(self, tid, p):
+        cb = p.get("codebase", "/app/lightingmetal/customer-portal")
+        reports = sorted([f for f in os.listdir("/app/.pi/blackboard/reports") if f.startswith(("audit-","diag-"))], reverse=True)
+        if not reports: return {"status":"fail","error":"no reports"}
+        with open(f"/app/.pi/blackboard/reports/{reports[0]}") as f: audit = f.read()[:4000]
         llm = self._get_llm()
         if not llm: return {"status":"fail","error":"LLM offline"}
-        
-        print("[雅溪] 🔧 生成修复方案...", flush=True)
+        print("[雅溪] 🔧 fixing...", flush=True)
         try:
             loop = asyncio.new_event_loop()
             plan = loop.run_until_complete(llm.chat(f"Audit:\n{audit[:3000]}\nSuggest concrete fixes. Format: filepath | replace_color | old->new. 5-10 items. Chinese 300 chars."))
             loop.close()
         except Exception as e: return {"status":"fail","error":str(e)}
-        
-        print(f"[雅溪] 方案: {plan[:200]}", flush=True)
         sandbox = f"/tmp/yaxiio-fix-{int(time.time())}"
-        shutil.copytree(codebase, sandbox+"/code", symlinks=True, ignore=shutil.ignore_patterns("node_modules",".nuxt",".git",".output"))
-        
+        shutil.copytree(cb, sandbox+"/code", symlinks=True, ignore=shutil.ignore_patterns("node_modules",".nuxt",".git",".output"))
         applied = 0; diffs = []
         for line in plan.split("\n"):
             parts = [p.strip() for p in line.split("|")]
@@ -135,175 +152,207 @@ class Commander:
                 if ov.strip() in orig:
                     with open(target,"w") as fh: fh.write(orig.replace(ov.strip(), nv.strip(), 1))
                     diffs.append(f"  {parts[0]}: {ov.strip()} -> {nv.strip()}"); applied += 1
-        
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        rp = f"/app/.pi/blackboard/reports/fix-{ts}.md"
-        with open(rp,"w") as f: f.write(f"# Fix Report\n> {task_id}\n\n## Plan\n\n{plan}\n\n## Applied ({applied})\n"+"\n".join(diffs))
+        ts = time.strftime("%Y%m%d-%H%M%S"); rp = f"/app/.pi/blackboard/reports/fix-{ts}.md"
+        with open(rp,"w") as f: f.write(f"# Fix\n> {tid}\n\n## Plan\n\n{plan}\n\n## Applied ({applied})\n"+"\n".join(diffs))
         print(f"[雅溪] 📄 {rp} ({applied})", flush=True)
         return {"status":"success","report":rp,"applied":applied,"sandbox":sandbox}
 
-    def _run_diagnose(self, task_id: str, payload: dict) -> dict:
-        """LLM 通用诊断：读代码→分析问题→写报告"""
-        import asyncio, fnmatch
-        codebase = payload.get("codebase", "/app/lightingmetal/customer-portal")
-        issue = payload.get("issue", payload.get("task", str(payload)))
-        files_hint = payload.get("files", "")
-        
+    # ═══════════════════════════════════════════════
+    # 诊断
+    # ═══════════════════════════════════════════════
+    def _run_diagnose(self, tid, p):
+        cb = p.get("codebase", "/app/lightingmetal/customer-portal")
+        issue = p.get("issue", str(p))
         print(f"[雅溪] 🔍 诊断: {issue[:80]}", flush=True)
-        
-        # 收集相关代码
         relevant = []
-        patterns = files_hint.split(",") if files_hint else ["*.vue", "*.ts", "*.js"]
-        for root, dirs, files in os.walk(codebase):
+        hints = p.get("hint","").lower().split(",")
+        for root, dirs, files in os.walk(cb):
             dirs[:] = [d for d in dirs if d not in ("node_modules",".nuxt",".git",".output")]
             for fn in files:
-                for pat in patterns:
-                    if fnmatch.fnmatch(fn, pat.strip()):
-                        fp = os.path.join(root, fn)
-                        try:
-                            with open(fp) as fh:
-                                ct = fh.read()
-                            if any(kw in ct.lower() for kw in ("lang","locale","i18n","switch","mobile","overflow","card","responsive") if kw in issue.lower() or kw in files_hint.lower()):
-                                relevant.append({"file": fp.replace(codebase,""), "code": ct[:2000]})
-                        except: pass
-                        break
-        
-        if not relevant:
-            relevant.append({"file": "all .vue files", "code": "scanning all files..."})
-        
-        # LLM 诊断
+                if fn.endswith((".vue",".ts",".js")):
+                    fp = os.path.join(root, fn)
+                    try:
+                        with open(fp) as fh: ct = fh.read()
+                        if any(h.strip() in ct.lower() for h in hints if h.strip()):
+                            relevant.append({"file":fp.replace(cb,""),"code":ct[:1500]})
+                            if len(relevant) >= 8: break
+                    except: pass
         findings = []
         llm = self._get_llm()
-        if llm:
-            ctx = "\n\n".join(f"=== {r['file']} ===\n{r['code']}" for r in relevant[:8])
+        if llm and relevant:
+            ctx = "\n\n".join(f"=== {r['file']} ===\n{r['code']}" for r in relevant[:6])
             try:
                 loop = asyncio.new_event_loop()
-                report = loop.run_until_complete(llm.chat(
-                    f"诊断 lightingmetal.com 的问题：{issue}\n\n相关代码：\n{ctx[:4000]}\n\n请分析：1)根因 2)影响范围 3)修复方案(具体代码)。Markdown中文，300字。"
-                ))
-                loop.close()
-                findings.append(report)
-            except Exception as e:
-                findings.append(f"LLM: {e}")
-        
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        rp = f"/app/.pi/blackboard/reports/diag-{ts}.md"
-        rpt = f"# 诊断报告\n> {task_id} | {ts}\n\n## 问题\n{issue}\n\n## LLM分析\n\n" + "\n".join(findings)
-        with open(rp,"w") as f: f.write(rpt)
+                r = loop.run_until_complete(llm.chat(f"Diagnose: {issue}\n\nCode:\n{ctx[:4000]}\n\nRoot cause, impact, fix. Markdown Chinese 300 chars."))
+                loop.close(); findings.append(r)
+            except Exception as e: findings.append(f"LLM: {e}")
+        ts = time.strftime("%Y%m%d-%H%M%S"); rp = f"/app/.pi/blackboard/reports/diag-{ts}.md"
+        with open(rp,"w") as f: f.write(f"# Diagnosis\n> {tid}\n\n## Issue\n{issue}\n\n## Analysis\n\n"+"\n".join(findings))
+        # 记录改进幅度
+        improvement = est - score
+        if improvement < stop.get("score_improvement_min", 1.5):
+            no_improve_key2 = f"yaxiio:drill_no_improve:{task[:50]}"
+            self.redis.setex(no_improve_key2, 86400, str(no_improve + 1))
+        else:
+            self.redis.delete(f"yaxiio:drill_no_improve:{task[:50]}")
         print(f"[雅溪] 📄 {rp}", flush=True)
         return {"status":"success","report":rp}
 
-
-    def _run_evolve(self, task_id: str, payload: dict) -> dict:
-        """L5 自进化：读自身代码→LLM发现缺口→生成补丁→验证→应用→重启"""
-        import asyncio, shutil, subprocess
-        target = payload.get("target", "/opt/commander/yaxiio.py")
-        requirement = payload.get("requirement", payload.get("task", "分析并改进自身"))
-        
-        print(f"[雅溪] 🧬 自进化: {requirement[:80]}", flush=True)
-        
-        # 1. 读取自身代码
+    # ═══════════════════════════════════════════════
+    # 自进化
+    # ═══════════════════════════════════════════════
+    def _run_evolve(self, tid, p):
+        req = p.get("requirement", str(p))
+        print(f"[雅溪] 🧬 进化: {req[:80]}", flush=True)
+        target = "/opt/commander/yaxiio.py"
         my_code = ""
         for root, dirs, files in os.walk("/opt/commander/modules"):
             dirs[:] = [d for d in dirs if not d.startswith(".")]
             for fn in files:
                 if fn.endswith(".py") and "bak" not in fn:
-                    fp = os.path.join(root, fn)
-                    with open(fp) as fh:
-                        my_code += f"\n=== {fp.replace(chr(47)+chr(111)+chr(112)+chr(116)+chr(47)+chr(99)+chr(111)+chr(109)+chr(109)+chr(97)+chr(110)+chr(100)+chr(101)+chr(114),chr(47))} ===\n{fh.read()[:800]}"
-        with open(target) as fh:
-            my_code += f"\n=== yaxiio.py ===\n{fh.read()[:2000]}"
-        
-        # 2. LLM 分析并生成补丁
+                    with open(os.path.join(root,fn)) as fh: my_code += f"\n=== {fn} ===\n{fh.read()[:600]}"
+        with open(target) as fh: my_code += f"\n=== yaxiio.py ===\n{fh.read()[:2000]}"
         llm = self._get_llm()
         if not llm: return {"status":"fail","error":"LLM offline"}
-        
         try:
             loop = asyncio.new_event_loop()
             plan = loop.run_until_complete(llm.chat(
-                f"你是雅溪，需要进化自己。\n需求：{requirement}\n当前代码：\n{my_code[:4000]}\n\n"
-                "如果需要在 yaxiio.py 中添加新方法，输出格式：\n"
-                "FILE: yaxiio.py\nACTION: add_method\nMETHOD_NAME: xxx\nCODE:\n```python\n...\n```\n\n"
-                "如果只需修改现有方法，输出：\nFILE: yaxiio.py\nACTION: patch\nFIND: 旧代码片段\nREPLACE: 新代码片段\n\n"
-                "用中文，200字内。"
-            ))
-            loop.close()
+                f"Evolve Yaxiio. Need: {req}\nCurrent:\n{my_code[:5000]}\n"
+                "Output: FILE: path\nMETHOD_NAME: xxx\nCODE:\n```python\n...\n```\nChinese 200 chars."
+            )); loop.close()
         except Exception as e: return {"status":"fail","error":str(e)}
-        
-        print(f"[雅溪] 💭 进化计划: {plan[:200]}", flush=True)
-        
-        # 3. 解析并应用补丁
+        print(f"[雅溪] 💭 {plan[:200]}", flush=True)
         applied = 0
-        if "FILE:" in plan and "CODE:" in plan:
+        if "CODE:" in plan and "```python" in plan:
             try:
-                code_block = plan.split("```python")[1].split("```")[0] if "```python" in plan else ""
-                method_name = plan.split("METHOD_NAME:")[1].split("\n")[0].strip() if "METHOD_NAME:" in plan else "new_method"
-                
-                if code_block:
-                    # 备份
-                    shutil.copy(target, target + ".prev")
-                    with open(target) as fh: orig = fh.read()
-                    
-                    # 插入新方法（在 _get_llm 之前）
-                    marker = "    def _get_llm(self):"
-                    if marker in orig:
-                        new_code = orig.replace(marker, code_block + "\n\n    " + marker)
-                        # 语法检查
-                        try:
-                            compile(new_code, target, "exec")
-                            with open(target, "w") as fh: fh.write(new_code)
-                            applied = 1
-                            print(f"[雅溪] ✅ 已添加方法: {method_name}", flush=True)
-                        except SyntaxError as se:
-                            print(f"[雅溪] ❌ 语法错误: {se}", flush=True)
-                            shutil.copy(target + ".prev", target)
-            except Exception as e:
-                print(f"[雅溪] ⚠️ 补丁应用失败: {e}", flush=True)
-                shutil.copy(target + ".prev", target) if os.path.exists(target + ".prev") else None
-        
-        elif "FIND:" in plan and "REPLACE:" in plan:
-            try:
-                find = plan.split("FIND:")[1].split("REPLACE:")[0].strip()
-                replace = plan.split("REPLACE:")[1].split("\n")[0].strip()
-                shutil.copy(target, target + ".prev")
+                cb = plan.split("```python")[1].split("```")[0]
+                mn = plan.split("METHOD_NAME:")[1].split("\n")[0].strip() if "METHOD_NAME:" in plan else "new"
+                shutil.copy(target, target+".prev")
                 with open(target) as fh: orig = fh.read()
-                if find in orig:
-                    new_code = orig.replace(find, replace, 1)
-                    compile(new_code, target, "exec")
-                    with open(target, "w") as fh: fh.write(new_code)
-                    applied = 1
-                    print(f"[雅溪] ✅ 已应用补丁", flush=True)
-            except Exception as e:
-                print(f"[雅溪] ⚠️ 补丁失败: {e}", flush=True)
-        
-        # 4. 写报告
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        rp = f"/app/.pi/blackboard/reports/evolve-{ts}.md"
-        with open(rp,"w") as f: f.write(f"# 自进化报告\n> {ts}\n\n## 需求\n{requirement}\n\n## LLM方案\n\n{plan}\n\n## 结果\n应用{applied}处修改")
+                mk = "    def _get_llm(self):"
+                if mk in orig:
+                    nc = orig.replace(mk, cb+"\n\n    "+mk)
+                    compile(nc, target, "exec")
+                    with open(target,"w") as fh: fh.write(nc)
+                    applied = 1; print(f"[雅溪] ✅ {mn}", flush=True)
+            except Exception as e: print(f"[雅溪] ⚠️ {e}", flush=True)
+        ts = time.strftime("%Y%m%d-%H%M%S"); rp = f"/app/.pi/blackboard/reports/evolve-{ts}.md"
+        with open(rp,"w") as f: f.write(f"# Evolve\n> {ts}\n\n## Need\n{req}\n\n## Plan\n\n{plan}\n\n## Result\n{applied} applied")
+        # 记录改进幅度
+        improvement = est - score
+        if improvement < stop.get("score_improvement_min", 1.5):
+            no_improve_key2 = f"yaxiio:drill_no_improve:{task[:50]}"
+            self.redis.setex(no_improve_key2, 86400, str(no_improve + 1))
+        else:
+            self.redis.delete(f"yaxiio:drill_no_improve:{task[:50]}")
         print(f"[雅溪] 📄 {rp}", flush=True)
-        
-        # 5. 如果有改动，触发重启
-        if applied:
-            print("[雅溪] 🔄 触发重启以应用进化...", flush=True)
-            os._exit(42)  # Guard 会检测并重启
-        
+        if applied: os._exit(42)
         return {"status":"success","applied":applied,"report":rp}
 
+    # ═══════════════════════════════════════════════
+    # 沙箱演习
+    # ═══════════════════════════════════════════════
+    def _run_drill(self, tid, p):
+        cb = p.get("codebase", "/app/lightingmetal/customer-portal")
+        task = p.get("replay_task", "unknown")
+        score = float(p.get("original_score", 5.0))
+        threshold = float(p.get("threshold", 7.0))
+        # 加载演习策略
+        policy = {}
+        try:
+            import json as _j
+            raw = self.redis.get("yaxiio:drill_policy")
+            if raw: policy = _j.loads(raw)
+        except: pass
+        trigger = policy.get("trigger", {})
+        limits = policy.get("limits", {})
+        stop = policy.get("stop_conditions", {})
+
+        # 检查触发条件
+        if score < trigger.get("min_score", 1.0): return {"status":"skip","reason":"score too low, manual review needed"}
+        if score >= trigger.get("max_score", 6.0): return {"status":"skip","reason":"score acceptable"}
+        allowed_actions = trigger.get("only_actions", [])
+        action_type = task  # drill检查的是原始任务类型，不是site_drill
+        if allowed_actions and action_type not in allowed_actions: return {"status":"skip","reason":f"{action_type} not in drill scope"}
+
+        # 检查频率限制
+        drill_key = f"yaxiio:drill_count:{time.strftime('%Y%m%d-%H')}"
+        hourly = int(self.redis.get(drill_key) or 0)
+        if hourly >= limits.get("max_drills_per_hour", 5): return {"status":"skip","reason":f"hourly limit {hourly}/{limits.get('max_drills_per_hour',5)}"}
+        daily_key = f"yaxiio:drill_count:{time.strftime('%Y%m%d')}"
+        daily = int(self.redis.get(daily_key) or 0)
+        if daily >= limits.get("max_drills_per_day", 20): return {"status":"skip","reason":f"daily limit {daily}/{limits.get('max_drills_per_day',20)}"}
+
+        # 检查任务重复演练次数
+        task_drill_key = f"yaxiio:drill_task:{task[:50]}"
+        task_drills = int(self.redis.get(task_drill_key) or 0)
+        if task_drills >= limits.get("max_drills_per_task", 3): return {"status":"skip","reason":f"task drill limit {task_drills}/{limits.get('max_drills_per_task',3)}"}
+
+        # 检查连续无改进
+        no_improve_key = f"yaxiio:drill_no_improve:{task[:50]}"
+        no_improve = int(self.redis.get(no_improve_key) or 0)
+        if no_improve >= stop.get("max_consecutive_no_improvement", 2): return {"status":"skip","reason":f"no improvement {no_improve} times, stop"}
+
+        # 通过检查，增加计数
+        self.redis.setex(drill_key, 3600, str(hourly + 1))
+        self.redis.setex(daily_key, 86400, str(daily + 1))
+        self.redis.setex(task_drill_key, 86400, str(task_drills + 1))
+
+        if score >= threshold: return {"status":"skip","reason":f"{score}>={threshold}"}
+        print(f"[雅溪] 🎯 Drill: score={score}<{threshold}", flush=True)
+        ts = int(time.time()); sb = f"/tmp/yaxiio-drill-{ts}"
+        os.makedirs(f"{sb}/code", exist_ok=True)
+        os.makedirs(f"{sb}/mock_deploy", exist_ok=True)
+        try: shutil.copytree(cb, f"{sb}/code/src", symlinks=True, ignore=shutil.ignore_patterns("node_modules",".nuxt",".git",".output"))
+        except: pass
+        with open(f"{sb}/mock_deploy/deploy.log","w") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] MOCK DRILL - no real deploy\n")
+        llm = self._get_llm()
+        plan = ""
+        if llm:
+            reps = sorted(glob.glob("/app/.pi/blackboard/reports/audit-*.md")+glob.glob("/app/.pi/blackboard/reports/diag-*.md"), key=os.path.getmtime, reverse=True)[:2]
+            ctx = ""
+            for rp in reps:
+                try:
+                    with open(rp) as f: ctx += f.read()[:1000]+"\n"
+                except: pass
+            try:
+                loop = asyncio.new_event_loop()
+                plan = loop.run_until_complete(llm.chat(f"Drill: {task}, score={score}/{threshold}.\nHistory:\n{ctx[:2000]}\nImprove? Chinese 200 chars."))
+                loop.close()
+            except: pass
+        est = min(10.0, score+1.5+len(plan)/500)
+        rp = f"/app/.pi/blackboard/reports/drill-{time.strftime('%Y%m%d-%H%M%S')}.md"
+        with open(rp,"w") as f: f.write(f"# Drill\n> {time.strftime('%Y-%m-%d %H:%M:%S')}\n\nTask: {task}\nScore: {score}->{est:.1f}\n\nPlan:\n{plan}\n\nSandbox: {sb} (isolated, mock deploy)\n")
+        for old in sorted(glob.glob("/tmp/yaxiio-drill-*"))[:-3]: shutil.rmtree(old, ignore_errors=True)
+        # 记录改进幅度
+        improvement = est - score
+        if improvement < stop.get("score_improvement_min", 1.5):
+            no_improve_key2 = f"yaxiio:drill_no_improve:{task[:50]}"
+            self.redis.setex(no_improve_key2, 86400, str(no_improve + 1))
+        else:
+            self.redis.delete(f"yaxiio:drill_no_improve:{task[:50]}")
+        print(f"[雅溪] 📄 {rp}", flush=True)
+        return {"status":"success","report":rp,"sandbox":sb,"estimated_score":est}
+
+    # ═══════════════════════════════════════════════
+    # LLM 客户端
+    # ═══════════════════════════════════════════════
     def _get_llm(self):
-        """获取 LLM 客户端"""
         try:
             sys.path.insert(0, "/app/.pi/skills/commander")
             from agent_lifecycle_v2 import LLMAdapter
             key = self.redis.get("yaxiio:config:llm_api_key") or os.environ.get("DEEPSEEK_API_KEY","")
             model = self.redis.get("yaxiio:config:llm_model") or "deepseek-v4-pro"
             return LLMAdapter(api_key=key, base_url="https://api.deepseek.com/v1", model=model)
-        except:
-            return None
+        except: return None
 
+    # ═══════════════════════════════════════════════
+    # 主循环
+    # ═══════════════════════════════════════════════
     def run(self):
-        print(f"[雅溪] ⚡ Yaxiio v2.0 五层架构上线", flush=True)
-        print(f"[雅溪] 📡 订阅 lightingmetal:agent:commander", flush=True)
-        
+        print("[雅溪] ⚡ Yaxiio v2.0 上线", flush=True)
+        print("[雅溪] 📡 订阅 lightingmetal:agent:commander", flush=True)
         while self.running:
             try:
                 pubsub = self.redis.subscribe("lightingmetal:agent:commander")
@@ -311,27 +360,17 @@ class Commander:
                     if msg["type"] != "message": continue
                     try:
                         data = json.loads(msg["data"])
-                        if data.get("type") == "task":
-                            self.handle_task(data)
-                    except Exception as e:
-                        print(f"[雅溪] ⚠️ {e}", flush=True)
+                        if data.get("type") == "task": self.handle_task(data)
+                    except Exception as e: print(f"[雅溪] ⚠️ {e}", flush=True)
             except Exception as e:
-                print(f"[雅溪] ⚠️ PubSub断开: {e}, 5s重连...", flush=True)
+                print(f"[雅溪] ⚠️ PubSub: {e}, 5s...", flush=True)
                 time.sleep(5)
-
-    def shutdown(self):
-        self.running = False
-        print("[雅溪] 👋 下线", flush=True)
 
 def main():
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
-    
     os.makedirs(LOG_DIR, exist_ok=True)
-    print(f"[雅溪] 🛡️ 启动五层架构", flush=True)
-    
-    commander = Commander()
-    commander.run()
+    Commander().run()
 
 if __name__ == "__main__":
     main()

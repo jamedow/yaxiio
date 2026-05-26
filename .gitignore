@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.bak
+*.bak2
+*.prev
+.env
+*.log
+node_modules/
+.nuxt/
+.output/
+data/db/
+logs/
+*.rdb
+*.aof

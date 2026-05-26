@@ -58,21 +58,22 @@ class Commander:
     # ═══════════════════════════════════════════════
 
     def _tool_inquire(self, tid, p, data):
-        """Tool-driven: LLM分析缺什么→追问外部Agent→收到回复执行"""
+        """Inquire: LLM checks missing info, asks external agent, retries"""
         import asyncio
         reply_ch = data.get("replyTo", f"lightingmetal:agent:{data.get('from','external')}")
         llm = self._get_llm()
         if not llm: return {"status":"fail","error":"LLM offline"}
-        tools = [{"type":"function","function":{"name":"execute_task","description":"Execute task","parameters":{"type":"object","properties":{"action":{"type":"string"},"codebase":{"type":"string"},"issue":{"type":"string"},"files":{"type":"string"},"criteria":{"type":"string"}},"required":["action"]}}}]
         try:
             loop = asyncio.new_event_loop()
-            resp = loop.run_until_complete(llm.chat(json.dumps(p,ensure_ascii=False)[:1000], tools=tools, tool_choice="required"))
+            resp = loop.run_until_complete(llm.chat(
+                f"You are Yaxiio. A task came in but may lack info. If enough info, say READY. Otherwise ask 1-2 follow-up questions in Chinese. Task: {json.dumps(p, ensure_ascii=False)[:800]}. Known: codebase=/app/lightingmetal/customer-portal"
+            ))
             loop.close()
         except Exception as e: return {"status":"fail","error":str(e)}
-        content = resp.get("content","")
-        if any(kw in content for kw in ["need","missing","please provide","缺少","需要","请提供"]):
-            self.redis.publish(reply_ch, {"type":"inquiry","taskId":tid,"from":"yaxiio","payload":{"action":"need_info","question":content[:300]}})
-            return {"status":"inquiring","question":content[:300]}
+        if resp and "READY" not in resp.upper():
+            self.redis.publish(reply_ch, {"type":"inquiry","taskId":tid,"from":"yaxiio","payload":{"action":"need_info","question":resp[:300]}})
+            print(f"[雅溪] Ask: {resp[:100]}", flush=True)
+            return {"status":"inquiring","question":resp[:300]}
         return self.handle_task({**data,"payload":p})
 
     def _cleanup_sandboxes(self) -> dict:
@@ -173,9 +174,11 @@ class Commander:
                     fp = os.path.join(root, fn)
                     try:
                         with open(fp) as fh: ct = fh.read()
-                        if any(h.strip() in ct.lower() for h in hints if h.strip()):
+                        matched = any(h.strip() in ct.lower() for h in hints if h.strip())
+                        name_match = any(h.strip() in fn.lower() for h in hints if h.strip())
+                        if matched or name_match:
                             relevant.append({"file":fp.replace(cb,""),"code":ct[:1500]})
-                            if len(relevant) >= 8: break
+                            if len(relevant) >= 12: break
                     except: pass
         findings = []
         llm = self._get_llm()
@@ -351,6 +354,13 @@ class Commander:
     # 主循环
     # ═══════════════════════════════════════════════
     def run(self):
+                # Auto-start MCP layers
+        import subprocess as _sp
+        mcp_layers = [(3401,"L1_perception"),(3402,"L2_planning"),(3403,"L3_coordination"),(3404,"L4_execution"),(3405,"L5_evolution")]
+        for port, layer in mcp_layers:
+            try:
+                _sp.Popen([sys.executable, f"/app/.pi/skills/commander/layers/{layer}/mcp_server.py"], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+            except: pass
         print("[雅溪] ⚡ Yaxiio v2.0 上线", flush=True)
         print("[雅溪] 📡 订阅 lightingmetal:agent:commander", flush=True)
         while self.running:

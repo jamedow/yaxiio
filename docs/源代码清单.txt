@@ -1,0 +1,1050 @@
+═══════════════════════════════════════════
+  雅溪 Yaxiio v1.04 源代码 - 前30页
+═══════════════════════════════════════════
+
+=== yaxiio.py (主入口) ===
+#!/usr/bin/env python3
+"""雅溪 Yaxiio v1.04 — 五层模块化智能调度系统 · AGPLv3"""
+import sys, os, json, time, signal, asyncio, shutil, glob
+
+sys.path.insert(0, "/opt/commander")
+from modules.shared.config import LOG_DIR
+from modules.layer1 import RedisClient, MongoClient, MCPRegistry, SkillLoader, create_vector_store
+from modules.layer2 import AgentFactory, LifecycleManager, ModelRouter, AgentRegistry, RAGManager
+from modules.layer3 import TaskDecomposer, DependencyAnalyzer, Scheduler, WorkflowSnapshot
+from modules.layer4 import AutoScorer, AuditLogger, FailureDetector
+from modules.layer5 import PromptOptimizer, WorkflowOptimizer, ABTester, SkillAutoGenerator
+
+class Commander:
+    def __init__(self):
+        self.redis = RedisClient(); self.mongo = MongoClient()
+        self.mcp = MCPRegistry(); self.vector = create_vector_store()
+        self.skills = SkillLoader(self.vector)
+        self.model_router = ModelRouter()
+        self.agent_factory = AgentFactory(self.redis, self.model_router)
+        self.lifecycle = LifecycleManager(self.agent_factory, self.redis)
+        self.rag = RAGManager(self.vector, self.redis)
+        self.registry = AgentRegistry(self.redis)
+        self.scheduler = Scheduler(self.agent_factory, self.lifecycle)
+        self.snapshot = WorkflowSnapshot()
+        self.scorer = AutoScorer(); self.audit = AuditLogger(self.mongo)
+        self.detector = FailureDetector()
+        self.prompt_opt = PromptOptimizer(); self.workflow_opt = WorkflowOptimizer()
+        self.ab = ABTester(); self.skill_gen = SkillAutoGenerator()
+        self.task_count = 0; self.start_time = time.time(); self.running = True
+
+    # ═══════════════════════════════════════════════
+    # 任务路由
+    # ═══════════════════════════════════════════════
+    def handle_task(self, data: dict):
+        tid = data.get("taskId", f"auto-{int(time.time())}")
+        p = data.get("payload", {})
+        a = p.get("action", "")
+        print(f"[雅溪] 🧠 {tid} ({a})", flush=True)
+        actions = {
+            "session_end": self._cleanup_sandboxes,
+            "site_audit": lambda: self._run_audit(tid, p),
+            "site_fix": lambda: self._run_fix(tid, p),
+            "site_evolve": lambda: self._run_evolve(tid, p),
+            "site_drill": lambda: self._run_drill(tid, p),
+        }
+        if a in actions:
+            result = actions[a]() if a == "session_end" else actions[a]()
+        else:
+            result = self._run_diagnose(tid, p)
+        score = self.scorer.score({"task_id": tid, "action": a}, result)
+        self.audit.log({"task_id": tid, "action": a}, result, score)
+        self.task_count += 1
+        return result
+
+    # ═══════════════════════════════════════════════
+    # 沙箱管理
+    # ═══════════════════════════════════════════════
+    def _cleanup_sandboxes(self) -> dict:
+        c = 0
+        for d in glob.glob("/tmp/yaxiio-fix-*") + glob.glob("/tmp/yaxiio-drill-*"):
+            shutil.rmtree(d, ignore_errors=True); c += 1
+        return {"status": "cleaned", "removed": c}
+
+    # ═══════════════════════════════════════════════
+    # 审计
+    # ═══════════════════════════════════════════════
+    def _run_audit(self, tid, p):
+        cb = p.get("codebase", "/app/lightingmetal/customer-portal")
+        print(f"[雅溪] 🔍 审计 {cb}", flush=True)
+        vf = []
+        for root, dirs, files in os.walk(cb):
+            dirs[:] = [d for d in dirs if d not in ("node_modules",".nuxt",".git",".output")]
+            for fn in files:
+                if fn.endswith(".vue"):
+                    fp = os.path.join(root, fn)
+                    with open(fp) as fh:
+                        ct = fh.read()
+                        ds = sum(1 for kw in ["card-zhongli","btn-zhongli","fangsheng","chain-divider","meander","vision"] if kw in ct)
+                        ol = sum(1 for kw in ["bg-white","bg-gray","text-gray","shadow-lg"] if kw in ct)
+                        th = sum(1 for kw in ["useIndustryTheme","texture-kunlun","texture-myth","texture-jingzhe","texture-ding","texture-canal"] if kw in ct)
+                        vf.append({"f":fp.replace(cb,""),"l":len(ct.split("\n")),"ds":ds,"old":ol,"th":th})
+        findings = []
+        llm = self._get_llm()
+        if llm:
+            s = "\n".join(f"{v['f']}: {v['l']}L ds={v['ds']} old={v['old']} theme={v['th']}" for v in sorted(vf,key=lambda x:-x["ds"])[:15])
+            try:
+                loop = asyncio.new_event_loop()
+                r = loop.run_until_complete(llm.chat(f"Audit {len(vf)} Vue files:\n{s}\nAnalyze design compliance, old UI, theme pushdown. Markdown Chinese 300 chars."))
+                loop.close(); findings.append(r)
+            except Exception as e: findings.append(f"LLM: {e}")
+        ts = time.strftime("%Y%m%d-%H%M%S"); rp = f"/app/.pi/blackboard/reports/audit-{ts}.md"
+        rpt = f"# Audit\n> {ts} | {len(vf)} files\n\n| File | Lines | ds | old | theme |\n|------|-------|----|-----|-------|\n"
+        for v in sorted(vf,key=lambda x:-x["ds"])[:20]: rpt += f"| {v['f']} | {v['l']} | {v['ds']} | {v['old']} | {v['th']} |\n"
+        rpt += "\n## Analysis\n\n" + "\n".join(findings)
+        with open(rp,"w") as f: f.write(rpt)
+        # 记录改进幅度
+        improvement = est - score
+        if improvement < stop.get("score_improvement_min", 1.5):
+            no_improve_key2 = f"yaxiio:drill_no_improve:{task[:50]}"
+            self.redis.setex(no_improve_key2, 86400, str(no_improve + 1))
+        else:
+            self.redis.delete(f"yaxiio:drill_no_improve:{task[:50]}")
+        print(f"[雅溪] 📄 {rp}", flush=True)
+        return {"status":"success","report":rp,"files":len(vf)}
+
+    # ═══════════════════════════════════════════════
+    # 修复
+    # ═══════════════════════════════════════════════
+    def _run_fix(self, tid, p):
+        cb = p.get("codebase", "/app/lightingmetal/customer-portal")
+        reports = sorted([f for f in os.listdir("/app/.pi/blackboard/reports") if f.startswith(("audit-","diag-"))], reverse=True)
+        if not reports: return {"status":"fail","error":"no reports"}
+        with open(f"/app/.pi/blackboard/reports/{reports[0]}") as f: audit = f.read()[:4000]
+        llm = self._get_llm()
+        if not llm: return {"status":"fail","error":"LLM offline"}
+        print("[雅溪] 🔧 fixing...", flush=True)
+        try:
+            loop = asyncio.new_event_loop()
+            plan = loop.run_until_complete(llm.chat(f"Audit:\n{audit[:3000]}\nSuggest concrete fixes. Format: filepath | replace_color | old->new. 5-10 items. Chinese 300 chars."))
+            loop.close()
+        except Exception as e: return {"status":"fail","error":str(e)}
+        sandbox = f"/tmp/yaxiio-fix-{int(time.time())}"
+        shutil.copytree(cb, sandbox+"/code", symlinks=True, ignore=shutil.ignore_patterns("node_modules",".nuxt",".git",".output"))
+        applied = 0; diffs = []
+        for line in plan.split("\n"):
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) < 3 or "->" not in parts[2]: continue
+            target = os.path.join(sandbox+"/code", parts[0].lstrip("/"))
+            if os.path.exists(target):
+                ov, nv = parts[2].split("->",1)
+                with open(target) as fh: orig = fh.read()
+                if ov.strip() in orig:
+                    with open(target,"w") as fh: fh.write(orig.replace(ov.strip(), nv.strip(), 1))
+                    diffs.append(f"  {parts[0]}: {ov.strip()} -> {nv.strip()}"); applied += 1
+        ts = time.strftime("%Y%m%d-%H%M%S"); rp = f"/app/.pi/blackboard/reports/fix-{ts}.md"
+        with open(rp,"w") as f: f.write(f"# Fix\n> {tid}\n\n## Plan\n\n{plan}\n\n## Applied ({applied})\n"+"\n".join(diffs))
+        print(f"[雅溪] 📄 {rp} ({applied})", flush=True)
+        return {"status":"success","report":rp,"applied":applied,"sandbox":sandbox}
+
+    # ═══════════════════════════════════════════════
+    # 诊断
+    # ═══════════════════════════════════════════════
+    def _run_diagnose(self, tid, p):
+        cb = p.get("codebase", "/app/lightingmetal/customer-portal")
+        issue = p.get("issue", str(p))
+        print(f"[雅溪] 🔍 诊断: {issue[:80]}", flush=True)
+        relevant = []
+        hints = p.get("hint","").lower().split(",")
+        for root, dirs, files in os.walk(cb):
+            dirs[:] = [d for d in dirs if d not in ("node_modules",".nuxt",".git",".output")]
+            for fn in files:
+                if fn.endswith((".vue",".ts",".js")):
+                    fp = os.path.join(root, fn)
+                    try:
+                        with open(fp) as fh: ct = fh.read()
+                        if any(h.strip() in ct.lower() for h in hints if h.strip()):
+                            relevant.append({"file":fp.replace(cb,""),"code":ct[:1500]})
+                            if len(relevant) >= 8: break
+                    except: pass
+        findings = []
+        llm = self._get_llm()
+        if llm and relevant:
+            ctx = "\n\n".join(f"=== {r['file']} ===\n{r['code']}" for r in relevant[:6])
+            try:
+                loop = asyncio.new_event_loop()
+                r = loop.run_until_complete(llm.chat(f"Diagnose: {issue}\n\nCode:\n{ctx[:4000]}\n\nRoot cause, impact, fix. Markdown Chinese 300 chars."))
+                loop.close(); findings.append(r)
+            except Exception as e: findings.append(f"LLM: {e}")
+        ts = time.strftime("%Y%m%d-%H%M%S"); rp = f"/app/.pi/blackboard/reports/diag-{ts}.md"
+        with open(rp,"w") as f: f.write(f"# Diagnosis\n> {tid}\n\n## Issue\n{issue}\n\n## Analysis\n\n"+"\n".join(findings))
+        # 记录改进幅度
+        improvement = est - score
+        if improvement < stop.get("score_improvement_min", 1.5):
+            no_improve_key2 = f"yaxiio:drill_no_improve:{task[:50]}"
+            self.redis.setex(no_improve_key2, 86400, str(no_improve + 1))
+        else:
+            self.redis.delete(f"yaxiio:drill_no_improve:{task[:50]}")
+        print(f"[雅溪] 📄 {rp}", flush=True)
+        return {"status":"success","report":rp}
+
+    # ═══════════════════════════════════════════════
+    # 自进化
+    # ═══════════════════════════════════════════════
+    def _run_evolve(self, tid, p):
+        req = p.get("requirement", str(p))
+        print(f"[雅溪] 🧬 进化: {req[:80]}", flush=True)
+        target = "/opt/commander/yaxiio.py"
+        my_code = ""
+        for root, dirs, files in os.walk("/opt/commander/modules"):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for fn in files:
+                if fn.endswith(".py") and "bak" not in fn:
+                    with open(os.path.join(root,fn)) as fh: my_code += f"\n=== {fn} ===\n{fh.read()[:600]}"
+        with open(target) as fh: my_code += f"\n=== yaxiio.py ===\n{fh.read()[:2000]}"
+        llm = self._get_llm()
+        if not llm: return {"status":"fail","error":"LLM offline"}
+        try:
+            loop = asyncio.new_event_loop()
+            plan = loop.run_until_complete(llm.chat(
+                f"Evolve Yaxiio. Need: {req}\nCurrent:\n{my_code[:5000]}\n"
+                "Output: FILE: path\nMETHOD_NAME: xxx\nCODE:\n```python\n...\n```\nChinese 200 chars."
+            )); loop.close()
+        except Exception as e: return {"status":"fail","error":str(e)}
+        print(f"[雅溪] 💭 {plan[:200]}", flush=True)
+        applied = 0
+        if "CODE:" in plan and "```python" in plan:
+            try:
+                cb = plan.split("```python")[1].split("```")[0]
+                mn = plan.split("METHOD_NAME:")[1].split("\n")[0].strip() if "METHOD_NAME:" in plan else "new"
+                shutil.copy(target, target+".prev")
+                with open(target) as fh: orig = fh.read()
+                mk = "    def _get_llm(self):"
+                if mk in orig:
+                    nc = orig.replace(mk, cb+"\n\n    "+mk)
+                    compile(nc, target, "exec")
+                    with open(target,"w") as fh: fh.write(nc)
+                    applied = 1; print(f"[雅溪] ✅ {mn}", flush=True)
+            except Exception as e: print(f"[雅溪] ⚠️ {e}", flush=True)
+        ts = time.strftime("%Y%m%d-%H%M%S"); rp = f"/app/.pi/blackboard/reports/evolve-{ts}.md"
+        with open(rp,"w") as f: f.write(f"# Evolve\n> {ts}\n\n## Need\n{req}\n\n## Plan\n\n{plan}\n\n## Result\n{applied} applied")
+        # 记录改进幅度
+        improvement = est - score
+        if improvement < stop.get("score_improvement_min", 1.5):
+            no_improve_key2 = f"yaxiio:drill_no_improve:{task[:50]}"
+            self.redis.setex(no_improve_key2, 86400, str(no_improve + 1))
+        else:
+            self.redis.delete(f"yaxiio:drill_no_improve:{task[:50]}")
+        print(f"[雅溪] 📄 {rp}", flush=True)
+        if applied: os._exit(42)
+        return {"status":"success","applied":applied,"report":rp}
+
+    # ═══════════════════════════════════════════════
+    # 沙箱演习
+    # ═══════════════════════════════════════════════
+    def _run_drill(self, tid, p):
+        cb = p.get("codebase", "/app/lightingmetal/customer-portal")
+        task = p.get("replay_task", "unknown")
+        score = float(p.get("original_score", 5.0))
+        threshold = float(p.get("threshold", 7.0))
+        # 加载演习策略
+        policy = {}
+        try:
+            import json as _j
+            raw = self.redis.get("yaxiio:drill_policy")
+            if raw: policy = _j.loads(raw)
+        except: pass
+        trigger = policy.get("trigger", {})
+        limits = policy.get("limits", {})
+        stop = policy.get("stop_conditions", {})
+
+        # 检查触发条件
+        if score < trigger.get("min_score", 1.0): return {"status":"skip","reason":"score too low, manual review needed"}
+        if score >= trigger.get("max_score", 6.0): return {"status":"skip","reason":"score acceptable"}
+        allowed_actions = trigger.get("only_actions", [])
+        action_type = task  # drill检查的是原始任务类型，不是site_drill
+        if allowed_actions and action_type not in allowed_actions: return {"status":"skip","reason":f"{action_type} not in drill scope"}
+
+        # 检查频率限制
+        drill_key = f"yaxiio:drill_count:{time.strftime('%Y%m%d-%H')}"
+        hourly = int(self.redis.get(drill_key) or 0)
+        if hourly >= limits.get("max_drills_per_hour", 5): return {"status":"skip","reason":f"hourly limit {hourly}/{limits.get('max_drills_per_hour',5)}"}
+        daily_key = f"yaxiio:drill_count:{time.strftime('%Y%m%d')}"
+        daily = int(self.redis.get(daily_key) or 0)
+        if daily >= limits.get("max_drills_per_day", 20): return {"status":"skip","reason":f"daily limit {daily}/{limits.get('max_drills_per_day',20)}"}
+
+        # 检查任务重复演练次数
+        task_drill_key = f"yaxiio:drill_task:{task[:50]}"
+        task_drills = int(self.redis.get(task_drill_key) or 0)
+        if task_drills >= limits.get("max_drills_per_task", 3): return {"status":"skip","reason":f"task drill limit {task_drills}/{limits.get('max_drills_per_task',3)}"}
+
+        # 检查连续无改进
+        no_improve_key = f"yaxiio:drill_no_improve:{task[:50]}"
+        no_improve = int(self.redis.get(no_improve_key) or 0)
+        if no_improve >= stop.get("max_consecutive_no_improvement", 2): return {"status":"skip","reason":f"no improvement {no_improve} times, stop"}
+
+        # 通过检查，增加计数
+        self.redis.setex(drill_key, 3600, str(hourly + 1))
+        self.redis.setex(daily_key, 86400, str(daily + 1))
+        self.redis.setex(task_drill_key, 86400, str(task_drills + 1))
+
+        if score >= threshold: return {"status":"skip","reason":f"{score}>={threshold}"}
+        print(f"[雅溪] 🎯 Drill: score={score}<{threshold}", flush=True)
+        ts = int(time.time()); sb = f"/tmp/yaxiio-drill-{ts}"
+        os.makedirs(f"{sb}/code", exist_ok=True)
+        os.makedirs(f"{sb}/mock_deploy", exist_ok=True)
+        try: shutil.copytree(cb, f"{sb}/code/src", symlinks=True, ignore=shutil.ignore_patterns("node_modules",".nuxt",".git",".output"))
+        except: pass
+        with open(f"{sb}/mock_deploy/deploy.log","w") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] MOCK DRILL - no real deploy\n")
+        llm = self._get_llm()
+        plan = ""
+        if llm:
+            reps = sorted(glob.glob("/app/.pi/blackboard/reports/audit-*.md")+glob.glob("/app/.pi/blackboard/reports/diag-*.md"), key=os.path.getmtime, reverse=True)[:2]
+            ctx = ""
+            for rp in reps:
+                try:
+                    with open(rp) as f: ctx += f.read()[:1000]+"\n"
+                except: pass
+            try:
+                loop = asyncio.new_event_loop()
+                plan = loop.run_until_complete(llm.chat(f"Drill: {task}, score={score}/{threshold}.\nHistory:\n{ctx[:2000]}\nImprove? Chinese 200 chars."))
+                loop.close()
+            except: pass
+        est = min(10.0, score+1.5+len(plan)/500)
+        rp = f"/app/.pi/blackboard/reports/drill-{time.strftime('%Y%m%d-%H%M%S')}.md"
+        with open(rp,"w") as f: f.write(f"# Drill\n> {time.strftime('%Y-%m-%d %H:%M:%S')}\n\nTask: {task}\nScore: {score}->{est:.1f}\n\nPlan:\n{plan}\n\nSandbox: {sb} (isolated, mock deploy)\n")
+        for old in sorted(glob.glob("/tmp/yaxiio-drill-*"))[:-3]: shutil.rmtree(old, ignore_errors=True)
+        # 记录改进幅度
+        improvement = est - score
+        if improvement < stop.get("score_improvement_min", 1.5):
+            no_improve_key2 = f"yaxiio:drill_no_improve:{task[:50]}"
+            self.redis.setex(no_improve_key2, 86400, str(no_improve + 1))
+        else:
+            self.redis.delete(f"yaxiio:drill_no_improve:{task[:50]}")
+        print(f"[雅溪] 📄 {rp}", flush=True)
+        return {"status":"success","report":rp,"sandbox":sb,"estimated_score":est}
+
+    # ═══════════════════════════════════════════════
+    # LLM 客户端
+    # ═══════════════════════════════════════════════
+    def _get_llm(self):
+        try:
+            sys.path.insert(0, "/app/.pi/skills/commander")
+            from agent_lifecycle_v2 import LLMAdapter
+            key = self.redis.get("yaxiio:config:llm_api_key") or os.environ.get("DEEPSEEK_API_KEY","")
+            model = self.redis.get("yaxiio:config:llm_model") or "deepseek-v4-pro"
+            return LLMAdapter(api_key=key, base_url="https://api.deepseek.com/v1", model=model)
+        except: return None
+
+    # ═══════════════════════════════════════════════
+    # 主循环
+    # ═══════════════════════════════════════════════
+    def run(self):
+        print("[雅溪] ⚡ Yaxiio v2.0 上线", flush=True)
+        print("[雅溪] 📡 订阅 lightingmetal:agent:commander", flush=True)
+        while self.running:
+            try:
+                pubsub = self.redis.subscribe("lightingmetal:agent:commander")
+                for msg in pubsub.listen():
+                    if msg["type"] != "message": continue
+                    try:
+                        data = json.loads(msg["data"])
+                        if data.get("type") == "task": self.handle_task(data)
+                    except Exception as e: print(f"[雅溪] ⚠️ {e}", flush=True)
+            except Exception as e:
+                print(f"[雅溪] ⚠️ PubSub: {e}, 5s...", flush=True)
+                time.sleep(5)
+
+def main():
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
+    os.makedirs(LOG_DIR, exist_ok=True)
+    Commander().run()
+
+if __name__ == "__main__":
+    main()
+
+=== L1 层 ===
+
+=== mcp_registry.py ===
+"""MCP Server 注册与发现"""
+class MCPRegistry:
+    def __init__(self): self.servers = {}
+    def register(self, name: str, command: str, args: list = None, env: dict = None):
+        self.servers[name] = {"name":name,"command":command,"args":args or [],"env":env or {},"status":"registered"}
+        return {"status":"success","server":name}
+    def list_all(self): return list(self.servers.values())
+    def get(self, name: str): return self.servers.get(name)
+
+=== mcp_stream.py ===
+import json, time, queue, threading
+class MCPStreamWriter:
+    def __init__(self): self._q=queue.Queue(); self._closed=False
+    def write(self,e,d): self._q.put({"event":e,"data":d,"time":time.time()})
+    def close(self): self._closed=True; self._q.put(None)
+    def generator(self):
+        while True:
+            item=self._q.get()
+            if item is None: break
+            yield f"event: {item[\"event\"]}\ndata: {json.dumps(item[\"data\"],ensure_ascii=False)}\n\n"
+class MCPStreamServer:
+    def __init__(self,cmdr=None): self.cmdr=cmdr
+    def execute_streaming(self,tid,action,payload):
+        w=MCPStreamWriter()
+        def run():
+            w.write("status",{"tid":tid,"status":"started"})
+            try:
+                if self.cmdr:
+                    if action=="site_audit": r=self.cmdr._run_audit(tid,payload)
+                    else: r=self.cmdr._run_diagnose(tid,payload)
+                    w.write("result",{"tid":tid,"status":"completed","result":r})
+            except Exception as e: w.write("error",{"msg":str(e)})
+            w.close()
+        threading.Thread(target=run,daemon=True).start()
+        return w
+
+=== mongo_client.py ===
+"""数据存储 — SQLite (Public Domain, AGPLv3兼容)"""
+import sqlite3, json, os, time, threading
+
+DB_PATH = os.environ.get("YAXIIO_DB", "/opt/commander/data/yaxiio.db")
+
+class MongoClient:  # 接口兼容，内部已切换SQLite
+    _lock = threading.Lock()
+    
+    def __init__(self):
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        with self._lock:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, collection TEXT, data TEXT, created_at REAL)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_collection ON events(collection)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_created ON events(created_at)")
+            conn.commit()
+            conn.close()
+
+    def insert_one(self, collection: str, doc: dict):
+        with self._lock:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("INSERT INTO events (collection, data, created_at) VALUES (?, ?, ?)",
+                        (collection, json.dumps(doc, ensure_ascii=False), time.time()))
+            conn.commit()
+            conn.close()
+
+    def find(self, collection: str, query: dict = None, limit: int = 100, offset: int = 0):
+        with self._lock:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT data FROM events WHERE collection=? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                              (collection, limit, offset)).fetchall()
+            conn.close()
+            return [json.loads(r["data"]) for r in rows]
+    
+    def count(self, collection: str) -> int:
+        with self._lock:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.execute("SELECT COUNT(*) FROM events WHERE collection=?", (collection,)).fetchone()[0]
+            conn.close()
+            return c
+    
+    def delete_old(self, collection: str, days: int = 30):
+        cutoff = time.time() - days * 86400
+        with self._lock:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("DELETE FROM events WHERE collection=? AND created_at<?", (collection, cutoff))
+            conn.commit()
+            conn.close()
+
+=== redis_client.py ===
+"""Redis 连接管理 — 单例 + 自动重连"""
+import redis, json, os, time
+from typing import Optional, Any
+from modules.shared.config import REDIS_HOST, REDIS_PORT, REDIS_PASSWORD
+
+class RedisClient:
+    _instance = None
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    def __init__(self):
+        if self._initialized: return
+        self._initialized = True
+        self._connect()
+    def _connect(self):
+        self.client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True, socket_connect_timeout=5, socket_keepalive=True)
+    def ping(self) -> bool:
+        try: return self.client.ping()
+        except: return False
+    def get(self, key: str) -> Optional[str]:
+        try: return self.client.get(key)
+        except: return None
+    def set(self, key: str, value: Any, ex: int = None):
+        if not isinstance(value, str): value = json.dumps(value, ensure_ascii=False)
+        self.client.set(key, value, ex=ex)
+    def publish(self, channel: str, message: dict):
+        self.client.publish(channel, json.dumps(message, ensure_ascii=False))
+    def subscribe(self, *channels):
+        pubsub = self.client.pubsub()
+        pubsub.subscribe(*channels)
+        return pubsub
+    def smembers(self, key: str): return self.client.smembers(key)
+    def hgetall(self, key: str): return self.client.hgetall(key)
+    def keys(self, pattern: str = "*"): return self.client.keys(pattern)
+
+=== skill_loader.py ===
+"""Skill 加载和管理 — 热加载 + 向量索引"""
+import os, json, time, hashlib, threading
+from modules.shared.config import SKILL_DIR, DATA_DIR
+
+class SkillLoader:
+    def __init__(self, vector_store=None):
+        self.skills = {}
+        self._mtimes = {}
+        self._watcher = None
+        self._running = False
+        self.vector = vector_store  # 可选向量索引
+        self._load()
+        self._start_watcher()
+
+    def _load(self):
+        if not os.path.exists(SKILL_DIR): return
+        count = 0
+        for name in os.listdir(SKILL_DIR):
+            path = os.path.join(SKILL_DIR, name)
+            if not os.path.isdir(path): continue
+            md = os.path.join(path, "SKILL.md")
+            if not os.path.exists(md): continue
+            mtime = os.path.getmtime(md)
+            if name in self._mtimes and self._mtimes[name] == mtime:
+                continue  # 未变化，跳过
+            self._mtimes[name] = mtime
+            with open(md) as f:
+                doc = f.read()
+                self.skills[name] = {"name": name, "path": path, "doc": doc, "mtime": mtime}
+                # 向量索引
+                if self.vector:
+                    self.vector.add(f"skill:{name}", doc[:500], {"type": "skill", "name": name})
+            count += 1
+        if count:
+            print(f"[SkillLoader] 加载/更新 {count} 个 Skill", flush=True)
+
+    def _start_watcher(self):
+        """后台线程每30秒检查Skill目录变化"""
+        def watch():
+            self._running = True
+            while self._running:
+                time.sleep(30)
+                try:
+                    self._load()
+                except Exception:
+                    pass
+        self._watcher = threading.Thread(target=watch, daemon=True)
+        self._watcher.start()
+
+    def stop(self):
+        self._running = False
+
+    def list_all(self):
+        return list(self.skills.keys())
+
+    def get(self, name: str):
+        return self.skills.get(name)
+
+    def search(self, query: str, top_k: int = 5):
+        """向量语义搜索 Skill"""
+        if self.vector:
+            return self.vector.search(query, top_k)
+        # fallback: 关键词匹配
+        results = []
+        for name, skill in self.skills.items():
+            score = sum(1 for w in query if w in skill["doc"])
+            if score > 0:
+                results.append({"name": name, "score": score, "doc": skill["doc"][:200]})
+        return sorted(results, key=lambda x: -x["score"])[:top_k]
+
+=== vector_store.py ===
+"""向量存储 — 轻量级，支持 Chroma 或内存模式"""
+import os, json, math, hashlib
+from typing import List, Dict, Optional
+
+class VectorStore:
+    """向量存储基类"""
+    def add(self, key: str, text: str, meta: dict = None): pass
+    def search(self, query: str, top_k: int = 5) -> List[Dict]: return []
+    def delete(self, key: str): pass
+    def count(self) -> int: return 0
+
+
+class MemVectorStore(VectorStore):
+    """内存向量存储 — 零依赖，基于 TF-IDF 相似度"""
+    def __init__(self):
+        self._docs = {}   # key → {text, meta}
+        self._idf = {}    # term → idf
+
+    def _tokenize(self, text: str) -> List[str]:
+        """简单分词"""
+        import re
+        return [w.lower() for w in re.findall(r'[\u4e00-\u9fff]+|[a-zA-Z]+', text) if len(w) > 1]
+
+    def add(self, key: str, text: str, meta: dict = None):
+        tokens = self._tokenize(text)
+        tf = {}
+        for t in tokens:
+            tf[t] = tf.get(t, 0) + 1
+            self._idf[t] = self._idf.get(t, 0) + 1
+        self._docs[key] = {"text": text, "meta": meta or {}, "tokens": tokens, "tf": tf}
+
+    def search(self, query: str, top_k: int = 5) -> List[Dict]:
+        q_tokens = self._tokenize(query)
+        if not q_tokens or not self._docs:
+            return []
+        # TF-IDF 相似度
+        N = len(self._docs)
+        scores = {}
+        for key, doc in self._docs.items():
+            score = 0
+            for t in set(q_tokens):
+                if t not in doc["tf"]:
+                    continue
+                tf = doc["tf"][t] / max(len(doc["tokens"]), 1)
+                idf = math.log((N + 1) / (self._idf.get(t, 0) + 1)) + 1
+                score += tf * idf
+            if score > 0:
+                scores[key] = score
+        ranked = sorted(scores.items(), key=lambda x: -x[1])[:top_k]
+        return [{"key": k, "score": round(s, 3), "meta": self._docs[k]["meta"],
+                 "text": self._docs[k]["text"][:200]} for k, s in ranked]
+
+    def delete(self, key: str):
+        if key in self._docs:
+            # 更新 IDF
+            doc = self._docs[key]
+            for t in doc["tf"]:
+                self._idf[t] = max(0, self._idf.get(t, 0) - 1)
+            del self._docs[key]
+
+    def count(self) -> int:
+        return len(self._docs)
+
+
+class ChromaVectorStore(VectorStore):
+    """Chroma 向量存储 — pip install chromadb"""
+    def __init__(self, path: str = None):
+        self._path = path or os.path.join(os.environ.get("DATA_DIR", "/opt/commander/data"), "chroma")
+        self._client = None
+        self._collection = None
+        try:
+            import chromadb
+            self._client = chromadb.PersistentClient(path=self._path)
+            self._collection = self._client.get_or_create_collection("yaxiio_skills")
+        except ImportError:
+            print("[VectorStore] chromadb not installed, using MemVectorStore")
+
+    def add(self, key: str, text: str, meta: dict = None):
+        if not self._collection: return
+        self._collection.add(documents=[text], metadatas=[meta or {}], ids=[key])
+
+    def search(self, query: str, top_k: int = 5) -> List[Dict]:
+        if not self._collection: return []
+        results = self._collection.query(query_texts=[query], n_results=top_k)
+        return [{"key": ids[0], "score": round(dist, 3), "text": doc[:200]}
+                for ids, dist, doc in zip(results["ids"], results["distances"], results["documents"])]
+
+    def delete(self, key: str):
+        if self._collection: self._collection.delete(ids=[key])
+
+    def count(self) -> int:
+        if self._collection: return self._collection.count()
+        return 0
+
+
+def create_vector_store(backend: str = "memory", path: str = None) -> VectorStore:
+    if backend == "chroma":
+        return ChromaVectorStore(path)
+    return MemVectorStore()
+
+=== L2 层 ===
+
+=== agent_factory.py ===
+"""Agent 工厂"""
+import uuid, json
+from modules.shared.types import AgentMeta, AgentQuadrant
+class AgentFactory:
+    def __init__(self, redis_client=None, model_router=None):
+        self.redis = redis_client; self.model_router = model_router
+    def create(self, role: str, task: dict = None, quadrant: str = "ephemeral") -> str:
+        agent_id = f"{role}-{uuid.uuid4().hex[:6]}"
+        model = self.model_router.select_model(task) if self.model_router and task else {"model":"deepseek-v4-pro"}
+        meta = AgentMeta(agent_id=agent_id, role=role, quadrant=AgentQuadrant(quadrant), model=model.get("model","deepseek-v4-pro"))
+        if self.redis: self.redis.set(f"agent:meta:{agent_id}", str(meta.__dict__))
+        return agent_id
+    def destroy(self, agent_id: str):
+        if self.redis: self.redis.client.delete(f"agent:meta:{agent_id}")
+
+=== agent_inheritance.py ===
+"""Agent 角色继承 — 新Agent自动继承父角色能力"""
+from typing import Dict, List, Optional
+
+# 能力继承树
+INHERITANCE_TREE = {
+    "CodeAuditor": {
+        "extends": None,
+        "capabilities": ["code_audit", "security_scan", "quality_report"],
+        "model": "deepseek-v4-pro"
+    },
+    "FrontendEngineer": {
+        "extends": "CodeAuditor",  # 继承代码审计能力
+        "capabilities": ["responsive_fix", "css_debug", "layout_audit"],
+        "model": "deepseek-v4-pro"
+    },
+    "BackendEngineer": {
+        "extends": "CodeAuditor",
+        "capabilities": ["api_debug", "database_optimize", "performance_tune"],
+        "model": "deepseek-v4-pro"
+    },
+    "SystemDiagnostician": {
+        "extends": "CodeAuditor",
+        "capabilities": ["oom_diagnose", "memory_leak", "crash_analysis"],
+        "model": "deepseek-v4-pro"
+    },
+    "FullStackEngineer": {
+        "extends": "FrontendEngineer",  # 多层继承
+        "capabilities": ["fullstack_debug", "deployment_audit"],
+        "model": "deepseek-v4-pro"
+    }
+}
+
+class AgentInheritance:
+    """角色继承管理器"""
+    def __init__(self, tree: dict = None):
+        self.tree = tree or INHERITANCE_TREE
+
+    def resolve(self, role: str) -> dict:
+        """解析角色的完整能力（含继承）"""
+        if role not in self.tree:
+            return self._default(role)
+
+        caps = set()
+        model = "deepseek-v4-pro"
+        current = role
+
+        # 沿继承链向上收集能力
+        while current and current in self.tree:
+            node = self.tree[current]
+            for c in node.get("capabilities", []):
+                caps.add(c)
+            if not model or model == "deepseek-v4-pro":
+                model = node.get("model", model)
+            current = node.get("extends")
+
+        return {
+            "role": role,
+            "capabilities": sorted(caps),
+            "model": model,
+            "inherits_from": self._get_lineage(role)
+        }
+
+    def _get_lineage(self, role: str) -> List[str]:
+        lineage = [role]
+        current = role
+        while current in self.tree:
+            parent = self.tree[current].get("extends")
+            if parent:
+                lineage.append(parent)
+                current = parent
+            else:
+                break
+        return lineage
+
+    def _default(self, role: str) -> dict:
+        return {"role": role, "capabilities": [role.lower()], "model": "deepseek-v4-pro", "inherits_from": []}
+
+    def add_role(self, role: str, extends: str, capabilities: List[str], model: str = "deepseek-v4-pro"):
+        self.tree[role] = {"extends": extends, "capabilities": capabilities, "model": model}
+
+    def list_all(self) -> List[dict]:
+        return [self.resolve(r) for r in self.tree]
+
+=== agent_memory.py ===
+"""分层记忆 — 工作记忆(Redis)+短期(SQLite)+长期(向量DB)"""
+import json, time, sqlite3, os
+from typing import Dict, List, Optional
+
+class AgentMemory:
+    """三层记忆架构"""
+    def __init__(self, redis_client=None, sqlite_db="/opt/commander/data/memory.db", vector_store=None):
+        self.redis = redis_client
+        self.vector = vector_store
+        self.db_path = sqlite_db
+        os.makedirs(os.path.dirname(sqlite_db), exist_ok=True)
+        conn = sqlite3.connect(sqlite_db)
+        conn.execute("CREATE TABLE IF NOT EXISTS memory (agent_id TEXT, key TEXT, value TEXT, created_at REAL, ttl REAL)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_agent ON memory(agent_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_ttl ON memory(ttl)")
+        conn.commit(); conn.close()
+
+    # ── 工作记忆 (Redis, TTL 5分钟) ──
+    def working_set(self, agent_id: str, key: str, value: str):
+        if self.redis: self.redis.setex(f"mem:work:{agent_id}:{key}", 300, value)
+
+    def working_get(self, agent_id: str, key: str) -> Optional[str]:
+        return self.redis.get(f"mem:work:{agent_id}:{key}") if self.redis else None
+
+    # ── 短期记忆 (SQLite, TTL 7天) ──
+    def short_remember(self, agent_id: str, key: str, value: str, ttl: int = 604800):
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("INSERT INTO memory VALUES (?,?,?,?,?)", (agent_id, key, json.dumps(value,ensure_ascii=False), time.time(), time.time()+ttl))
+        conn.commit(); conn.close()
+
+    def short_recall(self, agent_id: str, limit: int = 10) -> List[dict]:
+        conn = sqlite3.connect(self.db_path); conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT key,value,created_at FROM memory WHERE agent_id=? AND ttl>? ORDER BY created_at DESC LIMIT ?", (agent_id, time.time(), limit)).fetchall()
+        conn.close()
+        return [{"key":r["key"],"value":json.loads(r["value"]),"time":r["created_at"]} for r in rows]
+
+    # ── 长期记忆 (向量DB) ──
+    def long_remember(self, agent_id: str, text: str, meta: dict = None):
+        if self.vector:
+            self.vector.add(f"mem:long:{agent_id}:{int(time.time())}", text, meta or {})
+
+    def long_recall(self, agent_id: str, query: str, top_k: int = 5) -> List[dict]:
+        return self.vector.search(f"agent:{agent_id} {query}", top_k) if self.vector else []
+
+    # ── 摘要压缩 ──
+    def compress(self, agent_id: str, llm_client=None) -> str:
+        """将短期记忆压缩为长期摘要"""
+        memories = self.short_recall(agent_id, 20)
+        if not memories or not llm_client:
+            return ""
+        texts = "\n".join(f"- {m['key']}: {str(m['value'])[:200]}" for m in memories)
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            summary = loop.run_until_complete(llm_client.chat(f"Summarize agent memories:\n{texts}\nOne paragraph summary."))
+            loop.close()
+            self.long_remember(agent_id, summary, {"type":"summary","count":len(memories)})
+            return summary
+        except: return ""
+
+    def cleanup(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("DELETE FROM memory WHERE ttl<?", (time.time(),))
+        conn.commit(); conn.close()
+
+=== agent_registry.py ===
+"""Agent 能力注册"""
+class AgentRegistry:
+    def __init__(self, redis_client=None): self.redis = redis_client; self.cards = {}
+    def register(self, agent_id: str, capabilities: list):
+        self.cards[agent_id] = capabilities
+        if self.redis: self.redis.set(f"agent:caps:{agent_id}", str(capabilities))
+    def find(self, capability: str) -> list:
+        return [aid for aid, caps in self.cards.items() if capability in caps]
+
+=== lifecycle_manager.py ===
+"""四象限生命周期管理"""
+from modules.shared.types import AgentQuadrant
+class LifecycleManager:
+    def __init__(self, agent_factory=None, redis_client=None):
+        self.factory = agent_factory; self.redis = redis_client
+    def get_quadrant(self, role: str) -> AgentQuadrant:
+        core = ["翻译官","商务经理","售前经理"]; strategic = ["审计官","SEO分析师"]
+        if role in core: return AgentQuadrant.CORE
+        if role in strategic: return AgentQuadrant.STRATEGIC
+        return AgentQuadrant.EPHEMERAL
+
+=== model_router.py ===
+"""模型路由器"""
+class ModelRouter:
+    RULES = {
+        "complex": {"model":"deepseek-v4-pro","thinking":"max","keywords":["分析","拆解","优化","审计"]},
+        "stable": {"model":"deepseek-v4-pro","thinking":"high","keywords":["修复","创建","生成"]},
+        "fast": {"model":"deepseek-v4-flash","thinking":"off","keywords":["翻译","查询","检查"]},
+    }
+    def select_model(self, task: dict) -> dict:
+        desc = str(task.get("description","")) + str(task.get("action",""))
+        for rule in self.RULES.values():
+            for kw in rule["keywords"]:
+                if kw in desc: return rule
+        return self.RULES["stable"]
+
+=== multi_provider.py ===
+import os, time
+from typing import Optional
+
+PROVIDERS = {
+    "deepseek": {
+        "base_url": "https://api.deepseek.com/v1",
+        "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "priority": 1,
+        "cost_per_1k_input": 0.14,
+        "cost_per_1k_output": 0.28,
+    },
+    "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "models": ["gpt-4o", "gpt-4o-mini"],
+        "api_key_env": "OPENAI_API_KEY",
+        "priority": 2,
+        "cost_per_1k_input": 2.50,
+        "cost_per_1k_output": 10.00,
+    },
+    "claude": {
+        "base_url": "https://api.anthropic.com/v1",
+        "models": ["claude-sonnet-4-20250514"],
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "priority": 2,
+        "cost_per_1k_input": 3.00,
+        "cost_per_1k_output": 15.00,
+    }
+}
+
+
+class MultiProviderRouter:
+    """多Provider路由：按优先级+成本+可用性自动选择"""
+    def __init__(self, redis_client=None):
+        self.redis = redis_client
+        self._status = {}  # provider → {available, failures, last_check}
+
+    def select(self, task: dict = None, prefer: str = None) -> dict:
+        """选择最佳Provider和模型"""
+        # 优先级: 指定 > priority排序 > 可用性过滤
+        providers = sorted(PROVIDERS.items(), key=lambda x: x[1]["priority"])
+
+        if prefer and prefer in PROVIDERS:
+            return self._build_config(prefer, PROVIDERS[prefer]["models"][0])
+
+        for name, cfg in providers:
+            if self._is_available(name):
+                return self._build_config(name, cfg["models"][0])
+
+        # 全部不可用，返回默认
+        return self._build_config("deepseek", "deepseek-v4-flash")
+
+    def fallback(self, failed_provider: str) -> Optional[dict]:
+        """当前Provider失败后切换"""
+        self._record_failure(failed_provider)
+        providers = sorted(PROVIDERS.items(), key=lambda x: x[1]["priority"])
+        for name, cfg in providers:
+            if name != failed_provider and self._is_available(name):
+                return self._build_config(name, cfg["models"][0])
+        return None
+
+    def _build_config(self, provider: str, model: str) -> dict:
+        cfg = PROVIDERS[provider]
+        return {
+            "provider": provider, "model": model,
+            "base_url": cfg["base_url"],
+            "api_key": os.environ.get(cfg["api_key_env"], ""),
+            "cost": {"input": cfg["cost_per_1k_input"], "output": cfg["cost_per_1k_output"]}
+        }
+
+    def _is_available(self, provider: str) -> bool:
+        if provider not in PROVIDERS: return False
+        key = os.environ.get(PROVIDERS[provider]["api_key_env"], "")
+        if not key: return False
+        status = self._status.get(provider, {})
+        failures = status.get("failures", 0)
+        if failures >= 3:
+            last_check = status.get("last_check", 0)
+            if time.time() - last_check < 60:  # 冷却1分钟
+                return False
+        return True
+
+    def _record_failure(self, provider: str):
+        s = self._status.get(provider, {"failures": 0, "last_check": 0})
+        s["failures"] = s.get("failures", 0) + 1
+        s["last_check"] = time.time()
+        self._status[provider] = s
+
+    def _record_success(self, provider: str):
+        self._status[provider] = {"failures": 0, "last_check": time.time()}
+
+    def status(self) -> dict:
+        return {p: {"available": self._is_available(p), **self._status.get(p, {})} for p in PROVIDERS}
+
+
+"""条件分支 — 任务支持 if/else 流程"""
+
+=== rag_manager.py ===
+"""RAG 检索增强 — Agent执行前自动注入相关知识"""
+import os, json
+from typing import List, Dict, Optional
+
+class RAGManager:
+    """检索增强生成管理器"""
+    def __init__(self, vector_store=None, redis_client=None):
+        self.vector = vector_store
+        self.redis = redis_client
+        self._indexed = set()
+
+    def index_directory(self, path: str, pattern: str = ".md"):
+        """索引目录中的文档"""
+        count = 0
+        for root, dirs, files in os.walk(path):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for fn in files:
+                if fn.endswith(pattern):
+                    fp = os.path.join(root, fn)
+                    key = f"doc:{fp}"
+                    if key in self._indexed:
+                        continue
+                    try:
+                        with open(fp) as f:
+                            text = f.read()[:2000]
+                        self.vector.add(key, text, {"file": fp, "type": "document"})
+                        self._indexed.add(key)
+                        count += 1
+                    except:
+                        pass
+        if count:
+            print(f"[RAG] 索引 {count} 个文档", flush=True)
+        return count
+
+    def index_code(self, path: str):
+        """索引代码文件"""
+        count = 0
+        for root, dirs, files in os.walk(path):
+            dirs[:] = [d for d in dirs if d not in ("node_modules",".nuxt",".git",".output")]
+            for fn in files:
+                if fn.endswith((".vue",".ts",".py",".js")):
+                    fp = os.path.join(root, fn)
+                    key = f"code:{fp}"
+                    if key in self._indexed:
+                        continue
+                    try:
+                        with open(fp) as f:
+                            text = f.read()[:1500]
+                        self.vector.add(key, text, {"file": fp, "type": "code", "lang": fn.split(".")[-1]})
+                        self._indexed.add(key)
+                        count += 1
+                    except:
+                        pass
+        if count:
+            print(f"[RAG] 索引 {count} 个代码文件", flush=True)
+        return count
+
+    def retrieve(self, query: str, top_k: int = 5) -> List[Dict]:
+        """检索相关知识"""
+        if not self.vector:
+            return []
+        results = self.vector.search(query, top_k)
+        # 附加 Redis 缓存的相关 Agent 记忆
+        if self.redis:
+            try:
+                mem = self.redis.get(f"agent:memory:{query[:30]}")
+                if mem:
+                    results.append({"key": "memory", "score": 0.8, "text": str(mem)[:500], "meta": {"type": "memory"}})
+            except:
+                pass
+        return results
+
+    def augment_prompt(self, base_prompt: str, task_desc: str, top_k: int = 3) -> str:
+        """增强 Prompt——拼接检索到的相关知识"""
+        docs = self.retrieve(task_desc, top_k)
+        if not docs:
+            return base_prompt
+        context = "\n\n## 相关知识 (RAG检索)\n"
+        for i, d in enumerate(docs):
+            context += f"\n### {i+1}. {d.get('meta',{}).get('file', d['key'])}\n{d.get('text','')[:400]}\n"
+        return context + "\n\n---\n" + base_prompt
+
+    def count(self) -> int:
+        return len(self._indexed)

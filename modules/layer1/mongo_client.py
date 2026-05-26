@@ -1,20 +1,16 @@
-"""MongoDB 连接管理"""
-from pymongo import MongoClient as PyMongo
-from modules.shared.config import MONGO_URI
+"""数据存储 — JSONL文件 (AGPLv3兼容，无SSPLv1依赖)"""
+import json, os
 class MongoClient:
-    _instance = None
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-    def __init__(self):
-        if self._initialized: return
-        self._initialized = True
-        try: self.client = PyMongo(MONGO_URI, serverSelectionTimeoutMS=3000)
-        except: self.client = None
+    def __init__(self): self._log = os.environ.get("LOG_DIR", "/opt/commander/logs")
     def insert_one(self, collection: str, doc: dict):
-        if self.client: self.client["lightingmetal"][collection].insert_one(doc)
+        os.makedirs(self._log, exist_ok=True)
+        with open(f"{self._log}/{collection}.jsonl","a") as f: f.write(json.dumps(doc,ensure_ascii=False)+"\n")
     def find(self, collection: str, query: dict = None, limit: int = 100):
-        if self.client: return list(self.client["lightingmetal"][collection].find(query or {}).limit(limit))
-        return []
+        path = f"{self._log}/{collection}.jsonl"
+        if not os.path.exists(path): return []
+        results = []
+        with open(path) as f:
+            for line in f:
+                if len(results) >= limit: break
+                results.append(json.loads(line))
+        return results

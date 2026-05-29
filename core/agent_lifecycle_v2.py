@@ -344,7 +344,7 @@ class AsyncAgentFactory:
 
     FACTORY_SCRIPT = "/app/.pi/agents/runtime/agent-factory.sh"
     REDIS_HOST = "127.0.0.1"
-    REDIS_PASS = "Yaxiio2026"
+    REDIS_PASS = os.environ.get("REDIS_PASSWORD", "")
 
     def __init__(self, redis_client=None, safety: SafetyBoundary = None):
         if redis_client is None:

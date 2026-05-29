@@ -39,7 +39,7 @@ from typing import Optional, Tuple
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
-REDIS_PASS = os.environ.get("REDIS_PASSWORD", "Yaxiio2026")
+REDIS_PASS = os.environ.get("REDIS_PASSWORD", "")
 LLM_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 LLM_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-v4-pro")

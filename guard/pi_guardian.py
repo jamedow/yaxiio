@@ -17,7 +17,7 @@ import json, os, signal, subprocess, time, threading
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
-REDIS_PASS = os.environ.get("REDIS_PASSWORD", "Yaxiio2026")
+REDIS_PASS = os.environ.get("REDIS_PASSWORD", "")
 GUARDIAN_ID = os.environ.get("GUARDIAN_ID", "1")
 PARTNER_ID = "2" if GUARDIAN_ID == "1" else "1"
 LLM_KEY = os.environ.get("DEEPSEEK_API_KEY", "")

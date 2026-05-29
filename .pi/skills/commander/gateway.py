@@ -552,7 +552,7 @@ class CommanderV3:
         async def metrics(request):
             try:
                 import redis
-                r = redis.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD","Yaxiio2026"), protocol=2, decode_responses=True, socket_connect_timeout=2)
+                r = redis.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
                 return web.json_response({
                     "commander": bool(r.get("yaxiio:commander:lock")),
                     "guardian": bool(r.get("yaxiio:guardian:leader")),
@@ -577,7 +577,7 @@ class CommanderV3:
         async def health_detailed(request):
             try:
                 import redis
-                r = redis.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD","Yaxiio2026"), protocol=2, decode_responses=True, socket_connect_timeout=2)
+                r = redis.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
                 redis_ok = r.ping()
             except:
                 redis_ok = False

@@ -20,7 +20,7 @@ import os
 # ── 基础设施 ──────────────────────────────────────────
 REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
-REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "Yaxiio2026")
+REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017/")
 MONGO_DB = os.environ.get("MONGO_DATABASE", "lightingmetal")
 

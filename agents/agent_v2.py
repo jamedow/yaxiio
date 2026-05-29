@@ -5,7 +5,7 @@ import json, os, sys, time
 AGENT_NAME = sys.argv[1] if len(sys.argv) > 1 else "agent"
 REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
-REDIS_PASS = os.environ.get("REDIS_PASSWORD", "Yaxiio2026")
+REDIS_PASS = os.environ.get("REDIS_PASSWORD", "")
 
 CHANNEL = f"lightingmetal:agent:{AGENT_NAME}"
 CONTROL = "lightingmetal:agent:commander"

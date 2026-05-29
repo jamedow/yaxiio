@@ -28,7 +28,7 @@ class ReliableComm:
     def __init__(self, agent_id: str,
                  redis_host: str = "127.0.0.1",
                  redis_port: int = 6379,
-                 redis_password: str = "Yaxiio2026"):
+                 redis_password: str = ""):
         self.agent_id = agent_id
         self.redis = redis.Redis(
             host=redis_host, port=redis_port,

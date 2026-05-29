@@ -41,7 +41,7 @@ LOG_TO_REDIS = os.environ.get("LOG_TO_REDIS", "1") == "1"
 LOG_TO_STDOUT = os.environ.get("LOG_TO_STDOUT", "1") == "1"
 REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
-REDIS_PASS = os.environ.get("REDIS_PASSWORD", "Yaxiio2026")
+REDIS_PASS = os.environ.get("REDIS_PASSWORD", "")
 REDIS_LOG_TTL = 86400 * 7  # 7天
 
 

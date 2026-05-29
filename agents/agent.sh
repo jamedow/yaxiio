@@ -11,7 +11,7 @@ now() { date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S; }
 # 发布消息到指定频道
 publish() {
   local target="$1" payload="$2"
-  redis-cli -a 'Yaxiio2026' PUBLISH "lightingmetal:agent:${target}" "${payload}" 2>/dev/null > /dev/null
+  redis-cli -a "$REDIS_PASSWORD" PUBLISH "lightingmetal:agent:${target}" "${payload}" 2>/dev/null > /dev/null
 }
 
 # 回复消息给发送者
@@ -49,7 +49,7 @@ request_help() {
 log "启动 v2 (P2P), 频道: ${CHANNEL}"
 
 # 订阅自己的频道 + Commander控制频道
-redis-cli -a 'Yaxiio2026' SUBSCRIBE --no-auth-warning "${CHANNEL}" "${CONTROL}" 2>/dev/null | while read -r line; do
+redis-cli -a "$REDIS_PASSWORD" SUBSCRIBE --no-auth-warning "${CHANNEL}" "${CONTROL}" 2>/dev/null | while read -r line; do
   read -r type
   read -r channel
   read -r payload

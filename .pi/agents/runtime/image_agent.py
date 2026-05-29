@@ -4,7 +4,7 @@ import os, sys, json, time
 import requests
 
 ONE_API_URL = os.environ.get("IMAGE_API_URL", "http://172.17.0.1:3000/v1/images/generations")
-ONE_API_KEY = os.environ.get("IMAGE_API_KEY", "sk-22BhHx41WDRZfujO9d14Dc28C7F2404b8773F9056b734358")
+ONE_API_KEY = os.environ.get("IMAGE_API_KEY", "")
 MODEL = "gpt-image-2"
 
 INDUSTRY_PROMPTS = {

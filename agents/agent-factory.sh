@@ -59,7 +59,7 @@ PATTERNS
     
     sleep 1
     # 验证
-    SUB=$(redis-cli -a Yaxiio2026 PUBLISH "lightingmetal:agent:${ROLE}" '{"type":"heartbeat_check","to":"'"${ROLE}"'"}' 2>/dev/null)
+    SUB=$(redis-cli -a "$REDIS_PASSWORD" PUBLISH "lightingmetal:agent:${ROLE}" '{"type":"heartbeat_check","to":"'"${ROLE}"'"}' 2>/dev/null)
     if [ "$SUB" -gt 0 ] 2>/dev/null; then
       echo "✅ Agent已上线: ${ROLE} (订阅者:${SUB})"
     else

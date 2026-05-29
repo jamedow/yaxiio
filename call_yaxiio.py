@@ -3,7 +3,7 @@
 import redis, json, time, sys
 
 HOST = "127.0.0.1"
-PASS = "Yaxiio2026"
+PASS = os.environ.get("REDIS_PASSWORD", "")
 
 def ask(msg):
     r = redis.Redis(host=HOST, port=6379, password=PASS, decode_responses=True)

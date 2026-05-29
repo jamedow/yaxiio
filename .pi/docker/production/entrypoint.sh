@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-REDIS_PASS="${REDIS_PASSWORD:-Yaxiio2026}"
+REDIS_PASS="${REDIS_PASSWORD:-}"
 COMMANDER_DIR="/opt/yaxiio/.pi/skills/commander"
 
 echo "╔══════════════════════════════════════════════════╗"

@@ -4,7 +4,8 @@ echo "╔═══════════════════════�
 echo "║  雅溪 Yaxiio — 工作环境恢复                   ║"
 echo "╚══════════════════════════════════════════════╝"
 
-export DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-sk-22BhHx41WDRZfujO9d14Dc28C7F2404b8773F9056b734358}"
+export DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
+# ⚠️ 请设置环境变量 DEEPSEEK_API_KEY，不要在此文件中硬编码
 
 echo ""
 echo "▸ 检查 Yaxiio 容器..."
@@ -37,7 +38,7 @@ done
 
 echo ""
 echo "▸ 状态总览:"
-docker exec yaxiio bash -c "echo \"  Commander: \$(ps aux | grep yaxiio.py | grep -v grep | wc -l)\"; echo \"  Gateway:   \$(ps aux | grep gateway | grep -v grep | wc -l)\"; echo \"  Guard:     \$(pm2 status 2>/dev/null | grep online | wc -l)\"; echo \"  Redis:     \$(redis-cli -a Yaxiio2026 ping 2>/dev/null)\""
+docker exec yaxiio bash -c "echo \"  Commander: \$(ps aux | grep yaxiio.py | grep -v grep | wc -l)\"; echo \"  Gateway:   \$(ps aux | grep gateway | grep -v grep | wc -l)\"; echo \"  Guard:     \$(pm2 status 2>/dev/null | grep online | wc -l)\"; echo \"  Redis:     \$(redis-cli -a $REDIS_PASSWORD ping 2>/dev/null)\""
 
 echo ""
 echo "╔══════════════════════════════════════════════╗"

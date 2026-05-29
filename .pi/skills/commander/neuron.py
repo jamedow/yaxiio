@@ -15,7 +15,7 @@
   AGENT_NAME=UI/UX设计师 AGENT_SKILL=ui-ux-designer LLM_MODEL=deepseek-chat python3 neuron.py
 """
 
-import json, os, sys, time, re, traceback, threading, subprocess, tempfile
+import json, os, sys, time, re, traceback, threading, subprocess, tempfile, shlex
 from datetime import datetime
 
 # 确保可以导入 Commander 模块
@@ -24,10 +24,10 @@ sys.path.insert(0, "/app/.pi/skills/commander")
 
 # ── Redis ──
 try:
-from trace_logger import TraceLogger
+    from trace_logger import TraceLogger
     import redis as _redis
     HAS_REDIS = True
-nlog = TraceLogger("Neuron")
+    nlog = TraceLogger("Neuron")
 except ImportError:
     HAS_REDIS = False
 
@@ -516,7 +516,8 @@ Based on these REAL results, provide your final analysis and findings.
 
         for cmd in commands:
             try:
-                proc = subprocess.run(cmd, shell=True, capture_output=True,
+                safe_cmd = shlex.split(cmd) if isinstance(cmd, str) else cmd
+                proc = subprocess.run(safe_cmd, shell=False, capture_output=True,
                                       text=True, timeout=30, cwd="/tmp")
                 result["executed_commands"].append({
                     "cmd": cmd,

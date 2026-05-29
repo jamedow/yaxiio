@@ -11,7 +11,8 @@
 # 启动顺序: Redis → MongoDB → PM2(Guard) → Guard自启Commander → Dashboard
 # ═══════════════════════════════════════════════════════════════
 
-REDIS_PASS="Yaxiio2026"
+REDIS_PASS="${REDIS_PASSWORD:-}"
+# ⚠️ 请设置环境变量 REDIS_PASSWORD
 VER="${YAXIO_VERSION:-2.0.0}"
 COMMANDER_DIR="/app/.pi/skills/commander"
 GUARD_SCRIPT="/app/.pi/skills/commander/pi_guardian_v3.py"

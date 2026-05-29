@@ -7,7 +7,7 @@ OSS_BASE = "oss://lightingmetal-deploy/images/site"
 CDN_BASE = "https://lighting-metal.oss-cn-hongkong.aliyuncs.com/images/site"
 REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
-REDIS_PASS = os.environ.get("REDIS_PASS", "Yaxiio2026")
+REDIS_PASS = os.environ.get("REDIS_PASS", "")
 
 def download(url: str) -> str:
     """下载图片到临时文件"""

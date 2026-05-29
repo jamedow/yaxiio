@@ -949,6 +949,13 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
 
                 if result["overall"] < 7:
                     try:
+                        # Phase 5: PromptOptimizer — 低分时生成优化建议
+                        try:
+                            from modules.layer5 import PromptOptimizer
+                            po = PromptOptimizer()
+                            po.record(str(output_text)[:200], False)
+                        except Exception:
+                            pass
                         issues_str = "; ".join(result.get("key_issues", [])[:3])
                         call_layer(5, "meta_reflect",
                                   task_id=task_id, action=action,
@@ -981,6 +988,17 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         base_overall = round(sum(base.values()) / len(base))
         result = {"overall": base_overall, "method": "rule_fallback", "dimensions": base,
                   "needs_review": base_overall < 7, "needs_evolution": base_overall < 5}
+        # Phase 5: AutoScorer 融合 — 代码/内容质量双维度评分
+        try:
+            from modules.layer4 import AutoScorer
+            scorer = AutoScorer()
+            code_score = scorer.score({"task_id": task_id, "type": action}, l4)
+            if code_score.get("score", 0) > 0:
+                result["code_quality_score"] = round(code_score["score"], 2)
+                result["overall"] = round((result["overall"] + code_score["score"]) / 2, 2)
+                result["method"] = "rule_fallback+autoscorer"
+        except Exception:
+            pass  # AutoScorer 不可用时静默降级
         # Phase 3: Hybrid scoring — blend with human review if available
         hybrid = self.hybrid_scorer.calculate(task_id, base_overall)
         if hybrid["source"] == "hybrid":
@@ -1014,10 +1032,18 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         return {"tool": None, "agent": "审计官", "desc": f"通用:{action}",
                 "match_type": "fallback", "intent": primary_intent, "command": f"echo 'task'"}
 
-    def _get_llm(self):
+    def _get_llm(self, task_type: str = "default"):
+        # Phase 5: ModelRouter — 按任务类型选模型
         if self.commander:
-            try: return self.commander._get_llm()
-            except: pass
+            try:
+                from modules.layer2 import ModelRouter
+                router = ModelRouter()
+                task_info = {"action": task_type, "description": task_type}
+                cfg = router.select_model(task_info)
+                return self.commander._get_llm(cfg.get("model", task_type))
+            except:
+                try: return self.commander._get_llm()
+                except: pass
         return None
 
     def _call_llm(self, prompt: str, timeout: float = 30.0) -> str:

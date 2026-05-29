@@ -143,7 +143,21 @@ class ExecutionServer(MCPServer):
                "payload":{"action":action,"task":prompt,"parent_task":parent_task}}
         r.publish(f"lightingmetal:agent:{agent_name}", _j.dumps(msg, ensure_ascii=False))
         
-        # 3. Poll for result
+        # 3. Streams 通道 (Phase 3): 发布到 Stream, Consumer Group 自动分配
+        try:
+            from stream_bridge import StreamBridge
+            bridge = StreamBridge()
+            bridge.publish_task("L4", {
+                "taskId": sub_task_id,
+                "agent_name": agent_name,
+                "action": action,
+                "prompt": prompt,
+                "parent_task": parent_task,
+            }, sub_task_id)
+        except Exception:
+            pass  # Streams 不可用时走 Pub/Sub
+
+        # 4. Poll for result (Pub/Sub fallback)
         t0 = time.time()
         interval = 2
         while time.time() - t0 < timeout:

@@ -61,9 +61,14 @@ class PlanningServer(MCPServer):
             ],
         }
 
-        subtasks = strategies.get(intent, [
-            {"id":"s1","action":"execute","agent_type":"通用Agent","depends_on":[],"priority":1}
-        ])
+        subtasks = strategies.get(intent)
+        if subtasks is None:
+            # LLM fallback: 未知意图用大模型拆解
+            subtasks = self._llm_decompose(intent, task)
+            if not subtasks:
+                subtasks = [
+                    {"id":"s1","action":"execute","agent_type":"通用Agent","depends_on":[],"priority":1}
+                ]
 
         return {
             "plan_id": plan_id,
@@ -74,6 +79,48 @@ class PlanningServer(MCPServer):
             "parallel_groups": self._find_parallel_groups(subtasks),
             "timestamp": time.time(),
         }
+
+    def _llm_decompose(self, intent: str, task: str) -> list:
+        """LLM 驱动的任务拆解 — 未知意图的 fallback"""
+        import json as _json
+        try:
+            from openai import OpenAI
+            import redis as _r
+            r = _r.Redis(host="127.0.0.1", port=6379,
+                        password=os.environ.get("REDIS_PASSWORD",""),
+                        decode_responses=True, socket_connect_timeout=3)
+            key = r.get("yaxiio:config:llm_api_key") or os.environ.get("DEEPSEEK_API_KEY","")
+            if not key:
+                return []
+            llm = OpenAI(api_key=key, base_url="https://api.deepseek.com/v1")
+            prompt = f"""Decompose this task into 2-5 subtasks. Output JSON array only.
+Available agents: 审计官(audit), 品牌策略师(brand), 翻译官(translate), UI/UX设计师(design), 前端工程师(frontend), LM内容工程师(content)
+
+Task: {task[:400]}"""
+            resp = llm.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role":"user","content":prompt}],
+                temperature=0.3, max_tokens=500,
+            )
+            text = resp.choices[0].message.content
+            if "```" in text:
+                text = text.split("```")[1]
+                if text.startswith("json"): text = text[4:]
+            data = _json.loads(text.strip())
+            items = data if isinstance(data, list) else data.get("subtasks", [])
+            result = []
+            for i, item in enumerate(items):
+                if isinstance(item, dict):
+                    result.append({
+                        "id": item.get("id", f"s{i+1}"),
+                        "action": item.get("action", "")[:60],
+                        "agent_type": item.get("agent", item.get("agent_type", "审计官")),
+                        "depends_on": item.get("depends_on", item.get("depends", [])),
+                        "priority": 1,
+                    })
+            return result if result else []
+        except Exception:
+            return []
 
     def _find_parallel_groups(self, subtasks: list) -> list:
         """找出可并行执行的子任务组。"""

@@ -460,6 +460,23 @@ class Commander:
             if thinking is None:
                 thinking = "medium"
 
+        # Phase 5: 能力卡片 → AGENT_CONFIG 环境变量
+        agent_config_path = ""
+        try:
+            card_raw = self.redis.client.get(f"agent:card:{name}")
+            if card_raw:
+                import tempfile, json as _json
+                card = _json.loads(card_raw) if isinstance(card_raw, str) else card_raw
+                # 注入运行时参数
+                card["task_id"] = task_id
+                card["model"] = model
+                card["thinking"] = thinking
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, prefix=f"agent-{name}-") as tf:
+                    _json.dump(card, tf, ensure_ascii=False)
+                    agent_config_path = tf.name
+        except Exception:
+            pass  # 能力卡片不存在时静默降级
+
         env = {
             **os.environ,
             "AGENT_NAME": name,
@@ -473,6 +490,7 @@ class Commander:
             "REDIS_HOST": "127.0.0.1",
             "REDIS_PORT": "6379",
             "REDIS_PASSWORD": os.environ.get("REDIS_PASSWORD", ""),
+            "AGENT_CONFIG": agent_config_path,
         }
 
         print(f"[雅溪] 🧠 神经元 {name} 已激活 (model={model}, thinking={thinking}, skill={skill})", flush=True)

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yaxiio Dashboard</title>
+<style>
+:root{--bg:#0f1117;--card:#1a1d27;--border:#2a2d3a;--text:#e1e4eb;--dim:#6b7280;--green:#10b981;--red:#ef4444;--blue:#6366f1;--gold:#f59e0b;--cyan:#06b6d4}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);padding:20px}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+.header h1{font-size:28px;font-weight:700;background:linear-gradient(135deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px}
+.status-dot.online{background:var(--green);box-shadow:0 0 8px var(--green)}
+.status-dot.offline{background:var(--red)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+.card h3{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
+.card .value{font-size:36px;font-weight:700}
+.card .value.green{color:var(--green)} .card .value.blue{color:var(--blue)} .card .value.gold{color:var(--gold)}
+.agent-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.agent-item{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;display:flex;justify-content:space-between;align-items:center}
+.agent-item .name{font-weight:600}
+.agent-item .state{font-size:12px;padding:3px 8px;border-radius:12px}
+.state.idle{background:#1e3a2f;color:var(--green)} .state.executing{background:#1e2a3a;color:var(--blue)} .state.fault{background:#3a1e1e;color:var(--red)}
+.logs{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;max-height:400px;overflow-y:auto}
+.log-entry{font-family:'SF Mono',monospace;font-size:12px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)}
+.log-entry .ts{color:var(--dim);margin-right:8px}
+.log-entry .lvl{font-weight:700;margin-right:6px}
+.lvl.INFO{color:var(--blue)} .lvl.WARN{color:var(--gold)} .lvl.ERROR{color:var(--red)}
+.quick-actions{display:flex;gap:10px;margin-bottom:24px}
+.btn{background:var(--card);border:1px solid var(--border);color:var(--text);padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;transition:all .2s}
+.btn:hover{border-color:var(--blue);background:#1e1e3a}
+.btn.primary{background:var(--blue);border-color:var(--blue)} .btn.primary:hover{background:#5558e6}
+.footer{text-align:center;color:var(--dim);font-size:12px;margin-top:24px}
+.refresh{font-size:12px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>雅溪 Yaxiio</h1>
+    <span class="refresh" id="refresh">自动刷新 5s</span>
+  </div>
+  <div><span class="status-dot online" id="statusDot"></span><span id="statusText">在线</span></div>
+</div>
+
+<div class="quick-actions">
+  <button class="btn primary" onclick="createAgent()">➕ 创建 Agent</button>
+  <button class="btn" onclick="submitTask()">📋 提交任务</button>
+  <button class="btn" onclick="location.reload()">🔄 刷新</button>
+</div>
+
+<div class="grid" id="metricsGrid">
+  <div class="card"><h3>运行时间</h3><div class="value blue" id="uptime">--</div></div>
+  <div class="card"><h3>已完成任务</h3><div class="value green" id="tasks">--</div></div>
+  <div class="card"><h3>活跃 Agent</h3><div class="value gold" id="agents">--</div></div>
+  <div class="card"><h3>宪法合规率</h3><div class="value green" id="compliance">--</div></div>
+</div>
+
+<h3 style="margin:20px 0 12px;font-size:15px;color:var(--dim)">👥 Agent 状态</h3>
+<div class="agent-list" id="agentList">加载中...</div>
+
+<h3 style="margin:20px 0 12px;font-size:15px;color:var(--dim)">📋 最近事件</h3>
+<div class="logs" id="logContainer">加载中...</div>
+
+<div class="footer">Yaxiio v3.0 · AGPLv3 · Agent Operating System Kernel</div>
+
+<script>
+const API = '';
+
+async function fetchJSON(url) {
+  try { const r = await fetch(url); return r.json(); } catch(e) { return null; }
+}
+
+function fmtTime(s) {
+  if (!s) return '--';
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+  return h>0 ? `${h}h ${m}m` : `${m}m ${Math.floor(s%60)}s`;
+}
+
+async function refresh() {
+  const health = await fetchJSON('/health');
+  const metrics = await fetchJSON('/metrics');
+  const status = await fetchJSON('/api/v3/status');
+
+  document.getElementById('statusDot').className = health?.status==='ok' ? 'status-dot online' : 'status-dot offline';
+  document.getElementById('statusText').textContent = health?.status==='ok' ? '在线' : '离线';
+  document.getElementById('uptime').textContent = fmtTime(health?.uptime || metrics?.uptime_seconds);
+  document.getElementById('tasks').textContent = metrics?.active_tasks ?? '--';
+  document.getElementById('agents').textContent = status?.active_sessions ?? '--';
+  document.getElementById('compliance').textContent = metrics?.constitution_checks ? Math.round(metrics.constitution_checks/10)+'%' : '--';
+
+  // Agent list
+  const agents = status?.sessions || [];
+  document.getElementById('agentList').innerHTML = agents.length ? agents.map(a =>
+    `<div class="agent-item"><span class="name">${a.agent_name||a.session_token?.slice(0,8)||'Agent'}</span>
+    <span class="state idle">${a.status||'idle'}</span></div>`
+  ).join('') : '<div class="agent-item"><span class="name">暂无活跃 Agent</span></div>';
+
+  // Logs (from trace endpoint)
+  const traces = await fetchJSON('/trace/recent');
+  if (traces?.logs?.length) {
+    document.getElementById('logContainer').innerHTML = traces.logs.slice(-20).map(l =>
+      `<div class="log-entry"><span class="ts">${l.slice(0,12)}</span>${l.slice(12)}</div>`
+    ).join('');
+  }
+}
+
+function createAgent() {
+  const name = prompt('Agent 名称 (如: 审计官):', '审计官');
+  if (!name) return;
+  fetch('/api/v3/register', {method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client_type:'dashboard',fingerprint:'web-'+Date.now(),user_tier:'admin',metadata:{agent_name:name}})
+  }).then(r=>r.json()).then(d=>alert(d.session_token?'Agent 已创建: '+d.session_token.slice(0,12):'创建失败'));
+}
+
+function submitTask() {
+  const task = prompt('任务描述:', '审计 power 行业页面');
+  if (!task) return;
+  fetch('/api/v3/register',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client_type:'task',fingerprint:'task-'+Date.now()})
+  }).then(r=>r.json()).then(d=>{
+    if(!d.session_token) return alert('请先创建 Agent');
+    alert('任务已提交: '+task);
+  });
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

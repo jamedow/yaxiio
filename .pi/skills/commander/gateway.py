@@ -605,7 +605,35 @@ class CommanderV3:
         app.router.add_get("/api/v3/history", api_history)
         app.router.add_get("/metrics", metrics)
         app.router.add_get("/trace/{trace_id}", trace_logs)
+        # Recent traces (dashboard 用)
+        async def trace_recent(request):
+            try:
+                from trace_logger import REDIS_HOST, REDIS_PORT, REDIS_PASS
+                import redis as _r, json
+                r = _r.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASS or None,
+                            decode_responses=True, socket_connect_timeout=2)
+                logs = []
+                for key in r.scan_iter("trace:*:log", count=10):
+                    entries = r.lrange(key, 0, 9)
+                    logs.extend(entries)
+                return web.json_response({"logs": logs[-30:]})
+            except:
+                return web.json_response({"logs": []})
+        app.router.add_get("/trace/recent", trace_recent)
+
         app.router.add_get("/health", health_detailed)
+        # Dashboard
+        async def dashboard(request):
+            import os
+            dash_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
+            try:
+                with open(dash_path) as f:
+                    return web.Response(text=f.read(), content_type="text/html")
+            except:
+                return web.Response(text="Dashboard not found", status=404)
+        app.router.add_get("/", dashboard)
+        app.router.add_get("/dashboard", dashboard)
+
 
         runner = web.AppRunner(app)
         await runner.setup()

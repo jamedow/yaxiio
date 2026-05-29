@@ -1,30 +1,41 @@
-# 雅溪 Yaxiio
+# 雅溪 Yaxiio — 多智能体自主调度系统
 
-> AI 智能调度系统 · 五层模块化架构 · AGPLv3
+Yaxiio 是一个**通用的 Agent 操作系统内核**，不是外贸工具。
 
-Yaxiio 是一个通用的 AI 智能调度系统。通过 Redis Pub/Sub + MCP 协议实现多 Agent 协作，支持任务拆解、自主审计、自进化、沙箱演习。
+## 核心创新
+
+| 特性 | 说明 |
+|------|------|
+| ⚖️ **宪法约束** | 硬编码规则，Commander 不可越权执行 (业界独有) |
+| 🔄 **五层流水线** | L1感知→L2规划→L3调度→L4执行→L5评估 |
+| 🧠 **模板克隆** | 每任务新 Agent 实例，上下文零泄露 |
+| 📊 **A/B 自进化** | L5 低分自动触发 research + retry + 策略优化 |
+| 🛡️ **五级降级** | crash→restart, low_quality→医生诊断, 高危→sandbox |
+| 🏗️ **DinD 沙箱** | Docker-in-Docker 容器级隔离 |
 
 ## 快速开始
 
 ```bash
-docker pull yaxiio:latest
-docker run -d --name yaxiio \
-  -p 3003:3003 -p 3398:3398 \
-  -e DEEPSEEK_API_KEY=sk-xxx \
-  yaxiio:latest
+git clone git@codeup.aliyun.com:69ea42b37b6e0a01296310b9/AI/Yaxiio.git
+cd Yaxiio
+cat docs/README.md  # 开发者入门
 ```
 
-## 架构
+## 文档
 
-```
-yaxiio.py                    # 主入口
-├── L1 基础组件: Redis · SQLite · MCP · Skill热加载 · 向量DB
-├── L2 智能体:   Agent工厂 · 生命周期 · RAG · 分层记忆 · 多Provider
-├── L3 工作流:   任务状态机 · 并行调度 · 断点续传 · 条件分支
-├── L4 评估:     LLM-as-Judge · 全链路追踪 · Prometheus
-└── L5 进化:     GEPA优化 · A/B测试 · DSPy互补
-```
+| 文档 | 说明 |
+|------|------|
+| [开发者入门](docs/README.md) | 5 分钟了解 + 目录结构 + 启动 |
+| [架构设计](docs/ARCHITECTURE.md) | 五层 MCP + 宪法 + 设计模式 |
+| [设计决策](docs/DESIGN.md) | 8 个核心设计决策及取舍 |
+| [宪法系统](docs/CONSTITUTION.md) | ALLOWED/DELEGATED/REJECTED/DEGRADED |
+| [API 文档](docs/API.md) | WebSocket + HTTP + Redis Pub/Sub |
+| [部署指南](docs/DEPLOYMENT.md) | 生产 Docker 部署 |
+| [环境变量](docs/ENVIRONMENT.md) | 全部配置项 |
+| [结构化日志](docs/TRACE_LOGGING.md) | TraceLogger 使用 |
+| [沙箱系统](docs/SANDBOX.md) | DinD 容器隔离 |
+| [开发历史](docs/HISTORY.md) | v1.0 → v2.3.1 版本演进 |
 
 ## 许可证
 
-GNU Affero General Public License v3.0
+AGPL v3 — [详见 LICENSE](LICENSE)

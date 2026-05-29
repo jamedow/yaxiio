@@ -100,21 +100,41 @@ class Neuron:
         self._model_used = LLM_MODEL
         self._thinking_used = LLM_THINKING
 
-        api_key = LLM_API_KEY
-        if self.redis and not api_key:
+        # 多模型 API Key 查找链: Agent专属 → 能力卡片 → 全局 → 环境变量
+        api_key = ""
+        api_base = LLM_BASE_URL
+        if self.redis:
             try:
-                api_key = self.redis.get("yaxiio:config:llm_api_key") or ""
+                # 1. Agent 专属 Key (agent:apikey:审计官)
+                agent_key = self.redis.get(f"agent:apikey:{self.name}")
+                if agent_key:
+                    api_key = agent_key
+                    # Agent 专属 base_url (可选)
+                    agent_base = self.redis.get(f"agent:baseurl:{self.name}")
+                    if agent_base:
+                        api_base = agent_base
+                # 2. 能力卡片里的 key
+                if not api_key and self.card:
+                    api_key = self.card.get("api_key", "")
+                    if self.card.get("base_url"):
+                        api_base = self.card["base_url"]
+                # 3. 全局 fallback
+                if not api_key:
+                    api_key = self.redis.get("yaxiio:config:llm_api_key") or ""
             except:
                 pass
+        # 4. 环境变量 (最后兜底)
+        if not api_key:
+            api_key = LLM_API_KEY
 
         if HAS_LLM and api_key:
             try:
-                self.llm = OpenAI(api_key=api_key, base_url=LLM_BASE_URL)
-                log(f"🧠 大脑已连接 ({LLM_MODEL}, thinking={LLM_THINKING})")
+                self.llm = OpenAI(api_key=api_key, base_url=api_base)
+                log(f"🧠 大脑已连接 ({LLM_MODEL}, thinking={LLM_THINKING}, provider={api_base})")
             except Exception as e:
                 log(f"⚠️ LLM 连接失败: {e}")
         else:
-            log(f"⚠️ 无 LLM (key={'✓' if api_key else '✗'})")
+            log(f"⚠️ 无 LLM (key={yes if api_key else no})")
 
         # 3. Load Skill
         self._load_skill()

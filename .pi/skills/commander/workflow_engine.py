@@ -13,6 +13,7 @@ from mcp.protocol import MCPClient
 # 状态机
 from task_state_machine import TaskStateMachine
 from trace_logger import TraceLogger
+from modules.shared.config import MCP_LAYERS_ENABLED
 from tools.hybrid_scorer import HybridScorer
 from workflow_snapshot import WorkflowSnapshot, SchemaValidator
 
@@ -82,6 +83,9 @@ class WorkflowEngine:
         self.gap = GapAnalyzer()
 
     def process(self, task_id: str, payload: dict):
+        if MCP_LAYERS_ENABLED.get("L1"):
+            return {"mcp_routed": True, "layer": "L1", "phase": "not_implemented", "task_id": task_id}
+
         """入口: 判断是简单任务还是复杂任务，走不同流程"""
         action = payload.get("action", "unknown")
         action_clean = action.replace("site_", "").replace("translate_", "")
@@ -381,6 +385,9 @@ class WorkflowEngine:
         return state
 
     def _orchestrate_subtasks(self, task_id: str, subtasks: list, payload: dict) -> dict:
+        if MCP_LAYERS_ENABLED.get("L3"):
+            return {"mcp_routed": True, "layer": "L3", "phase": "not_implemented"}
+
         """并行编排: 无依赖的子任务同时发射，依赖满足后立即启动"""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -511,6 +518,9 @@ class WorkflowEngine:
 
 
     def _decompose_via_l2(self, task_id: str, payload: dict) -> list:
+        if MCP_LAYERS_ENABLED.get("L2"):
+            return [{"id": "s1", "action": "mcp_routed", "agent": "审计官", "depends": [], "prompt": "MCP L2 not implemented"}]
+
         """L2: query L0 experience -> try MCP decompose -> fallback LLM"""
         task_desc = str(payload.get("task", payload.get("action", "")))[:800]
         action = payload.get("action", "unknown")
@@ -793,6 +803,9 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         return self._build_plan(primary, payload.get("action", ""), payload, arsenal_tools)
 
     def _do_L3_L4(self, task_id: str, payload: dict, plan: dict, state: dict) -> dict:
+        if MCP_LAYERS_ENABLED.get("L4"):
+            return {"mcp_routed": True, "layer": "L4", "phase": "not_implemented"}
+
         """L3 调度 + L4 执行"""
         agent_name = plan.get("agent")
         l3 = {"dispatched": False, "agent": agent_name, "neuron_spawned": False}
@@ -881,6 +894,9 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         return {"status": "timeout", "error": f"{agent_name} 未在 {timeout}s 内响应"}
 
     def _do_L5(self, task_id: str, action: str, plan: dict, l4: dict, state: dict) -> dict:
+        if MCP_LAYERS_ENABLED.get("L5"):
+            return {"mcp_routed": True, "layer": "L5", "phase": "not_implemented"}
+
         """L5 scoring - LLM deep_score with proper output extraction"""
         # Extract agent output text from various formats
         output_text = ""

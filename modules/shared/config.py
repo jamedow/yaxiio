@@ -27,6 +27,17 @@ AGENT_HEARTBEAT_TIMEOUT = 60
 MAX_RESTARTS = 3
 RESTART_PERIOD = 120
 
+# ── MCP 五层独立开关 (Phase 0: 默认全部走旧引擎) ──
+# 每迁移一层 → 改一个 False → True → 验证 → 下一层
+# 回滚也是单层回滚：改回 False 即可
+MCP_LAYERS_ENABLED = {
+    "L1": False,  # perception-server: 意图识别与工具分发
+    "L2": False,  # planning-server: 任务拆解与模型路由
+    "L3": False,  # coordination-server: 并行编排与依赖调度
+    "L4": False,  # execution-server: Agent分配与执行
+    "L5": False,  # evolution-server: 评分、优化与进化
+}
+
 # 对象式访问（兼容雅溪自生成的代码）
 class Config:
     def __init__(self):

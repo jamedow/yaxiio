@@ -28,6 +28,7 @@ from modules.layer5 import PromptOptimizer, WorkflowOptimizer, ABTester, SkillAu
 # 异步执行器 — 统一使用 async_executor.py 中的 AsyncExecutor 单例
 # ═══════════════════════════════════════════════════════════════
 from async_executor import async_executor
+from trace_logger import TraceLogger
 from sqlite_store import SQLiteStore, FakeMongoDB
 
 # 向后兼容别名（其他模块可能引用）
@@ -150,7 +151,7 @@ class Commander:
             from resource_pool import resource_pool
             resource_pool.bootstrap(self.redis.client)
         except Exception as e:
-            print(f"[雅溪] ⚠️ ResourcePool 初始化失败: {e}")
+            self.log.warn("__init__", "ResourcePool初始化失败", error=str(e))
 
         # ── 宪法 ──
         self.constitution = get_constitution(self.redis)
@@ -179,6 +180,7 @@ class Commander:
 
         self.pool = None
         self.workflow = None
+        self.log = TraceLogger("Commander")
 
     # ═══════════════════════════════════════════════
     # 宪法审查 + 任务路由 (v1.06 核心改动)
@@ -197,7 +199,7 @@ class Commander:
         # ── ⚖️ 宪法审查 ──
         verdict, reason = self.constitution.review(a, p)
         stats = self.pool.stats() if self.pool else {}
-        print(f"[雅溪] ⚖️ {tid} ({a}) → {verdict.value} | {reason[:60]} [q={stats.get('queue_depth',0)}]", flush=True)
+        self.log.info("handle_task", "宪法审查", trace_id=trace_id, action=a, verdict=verdict.value, reason=reason[:60], queue_depth=stats.get("queue_depth",0) if stats else 0)
 
         if verdict == Verdict.REJECTED:
             # 严重违宪 — 拒绝执行
@@ -241,9 +243,9 @@ class Commander:
                 self._publish_result(tid, data, result, "success")
                 try: self.task_count += 1
                 except: pass
-                print(f"[雅溪] ⚪ {tid} ({action}) done [直通]", flush=True)
+                self.log.info("_run_allowed", "白名单直通完成", trace_id=trace_id, action=action)
             except Exception as e:
-                print(f"[雅溪] ❌ {tid} ({action}): {e}", flush=True)
+                self.log.error("_run_allowed", "白名单异常", trace_id=tid, action=action, error=str(e)[:200])
                 self._publish_result(tid, data, {"error": str(e)[:500]}, "error")
 
         if self.pool:
@@ -260,7 +262,7 @@ class Commander:
         """
         def _run():
             try:
-                print(f"[雅溪] 🔀 {tid} ({action}) → L1→L5 流水线", flush=True)
+                self.log.info("_run_delegated", "路由到流水线", trace_id=trace_id, action=action)
 
                 enriched_payload = dict(payload)
                 enriched_payload["_arsenal_tools"] = self.arsenal.list_tools()
@@ -272,7 +274,7 @@ class Commander:
                 if l4_status == "pending":
                     # 异步模式: Neuron 在处理中, 保存上下文待回调
                     self._save_pending_task(tid, data, result)
-                    print(f"[雅溪] ⏳ {tid} ({action}) Neuron 处理中, 等待回调", flush=True)
+                    self.log.info("_run_delegated", "Neuron异步处理", trace_id=tid, action=action, status="pending")
                     return
 
                 self._publish_result(tid, data, result, "success")
@@ -280,9 +282,9 @@ class Commander:
                 except: pass
                 l5 = result.get("l5_result", {})
                 score = l5.get("overall", "?")
-                print(f"[雅溪] 🔵 {tid} ({action}) done [流水线 | L5={score}]", flush=True)
+                self.log.info("_run_delegated", "流水线完成", trace_id=trace_id, action=action, l5_score=score)
             except Exception as e:
-                print(f"[雅溪] ❌ {tid} ({action}): {e}", flush=True)
+                self.log.error("_run_delegated", "流水线异常", trace_id=tid, action=action, error=str(e)[:200])
                 self._publish_result(tid, data, {"error": str(e)[:500]}, "error")
 
         if self.pool:
@@ -344,7 +346,7 @@ class Commander:
             l5 = self.workflow._do_L5(tid, action, plan, state["l4_result"], state)
             state["l5_result"] = l5
 
-            print(f"[雅溪] 🔵 {tid} ({action}) done [异步 | L5={l5.get('overall', '?')}]", flush=True)
+            self.log.info("_resume_pending", "异步任务完成", trace_id=tid, action="callback", l5_score=l5.get("overall", "?"))
             self._publish_result(tid, original_data, state, "success")
             try: self.task_count += 1
             except: pass
@@ -797,9 +799,9 @@ class Commander:
         except Exception as e:
             print("[雅溪] Recovery error: %s" % str(e)[:100], flush=True)
 
-        print("[雅溪] ⚡ Yaxiio v0.2.6 AGPLv3 (C) 2026 jamedow 上线", flush=True)
-        print("[雅溪] ⚖️ 宪法已激活 | 白名单: 6 ops | Arsenal: 12 tools", flush=True)
-        print("[雅溪] 📡 订阅 yaxiio:agent:commander", flush=True)
+        self.log.info("run", "Commander启动", version="0.2.6")
+        self.log.info("run", "宪法激活", whitelist_ops=6, arsenal_tools=12)
+        self.log.info("run", "订阅频道", channels="yaxiio:agent:commander,lightingmetal:agent:commander")
 
         cycle = 0
         while self.running:

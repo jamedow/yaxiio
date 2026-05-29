@@ -12,6 +12,7 @@ from mcp.protocol import MCPClient
 
 # 状态机
 from task_state_machine import TaskStateMachine
+from trace_logger import TraceLogger
 from tools.hybrid_scorer import HybridScorer
 from workflow_snapshot import WorkflowSnapshot, SchemaValidator
 
@@ -67,6 +68,7 @@ class WorkflowEngine:
     def __init__(self, commander=None):
         self.commander = commander
         self.sm = TaskStateMachine()  # 状态机
+        self.log = TraceLogger("WorkflowEngine")
         self.active: dict = {}
         self._lock = threading.Lock()
         self.task_count = 0
@@ -139,7 +141,7 @@ class WorkflowEngine:
             # ── 重试策略 ──
             l5_first = state["l5_result"]
             if l5_first.get("verdict") == "retry" and not state.get("_retried"):
-                print(f"[WF] {task_id} L5=retry → 升级 thinking 重试", flush=True)
+                self.log.warn("_process_simple", "L5触发重试", trace_id=task_id, reason="low_score")
                 retry_payload = dict(payload)
                 retry_payload["_thinking"] = self._bump_thinking(state.get("_last_thinking", "medium"))
                 state["_retried"] = True
@@ -152,7 +154,7 @@ class WorkflowEngine:
                                        {"score": state["l5_result"].get("overall"), "retried": True})
             elif l5_first.get("verdict") == "reject":
                 # 研究+重试: 网上找资料 → 增强 → 再跑一次
-                print(f"[WF] {task_id} L5=reject → 网上研究后重试", flush=True)
+                self.log.warn("_process_simple", "L5触发研究重试", trace_id=task_id, reason="rejected")
                 issues_str = "; ".join(l5_first.get("key_issues", [])[:3])
                 try:
                     research = call_layer(5, "research_and_retry",

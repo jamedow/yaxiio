@@ -24,8 +24,10 @@ sys.path.insert(0, "/app/.pi/skills/commander")
 
 # ── Redis ──
 try:
+from trace_logger import TraceLogger
     import redis as _redis
     HAS_REDIS = True
+nlog = TraceLogger("Neuron")
 except ImportError:
     HAS_REDIS = False
 
@@ -248,6 +250,7 @@ class Neuron:
     # ═══════════════════════════════════════════════
 
     def think_and_act(self, task: dict) -> dict:
+        trace_id = os.environ.get("TRACE_ID", task.get("taskId", ""))
         """Core loop with state machine (v2)"""
         self._set_state("EXECUTING")
         self.task_start_time = time.time()
@@ -257,7 +260,7 @@ class Neuron:
         action = payload.get("action", "unknown")
         reply_to = task.get("replyTo", CONTROL_CH)
 
-        log(f"RECV #{self.task_count+1} {task_id} ({action})")
+        self.log.info("think_and_act", "收到任务", trace_id=trace_id, action=action, task_id=task_id)  # was: log(f"RECV #{self.task_count+1} {task_id} ({action})")
 
         context = {
             "agent": self.name,

@@ -548,6 +548,47 @@ class CommanderV3:
             })
 
         # 路由
+        # ── 可观测性端点 ──
+        async def metrics(request):
+            try:
+                import redis
+                r = redis.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
+                return web.json_response({
+                    "commander": bool(r.get("yaxiio:commander:lock")),
+                    "guardian": bool(r.get("yaxiio:guardian:leader")),
+                    "active_tasks": r.scard("yaxiio:task:active") or 0,
+                    "constitution_checks": int(r.get("yaxiio:constitution:total") or 0),
+                    "uptime_seconds": int(time.time() - self._start_time),
+                })
+            except:
+                return web.json_response({"error": "Redis unavailable"}, status=503)
+
+        async def trace_logs(request):
+            trace_id = request.match_info.get("trace_id", "")
+            if not trace_id:
+                return web.json_response({"error": "trace_id required"}, status=400)
+            try:
+                from trace_logger import query_trace_logs
+                logs = query_trace_logs(trace_id)
+                return web.json_response({"trace_id": trace_id, "count": len(logs), "logs": logs})
+            except Exception as e:
+                return web.json_response({"error": str(e)}, status=500)
+
+        async def health_detailed(request):
+            try:
+                import redis
+                r = redis.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
+                redis_ok = r.ping()
+            except:
+                redis_ok = False
+            return web.json_response({
+                "status": "ok" if redis_ok else "degraded",
+                "redis": redis_ok,
+                "ws_port": self.ws_port,
+                "http_port": self.http_port,
+                "uptime_seconds": int(time.time() - self._start_time),
+            })
+
         app.router.add_post("/api/v3/register", api_register)
         app.router.add_post("/api/v3/connect", api_connect)
         app.router.add_post("/api/v3/destroy", api_destroy)
@@ -556,6 +597,10 @@ class CommanderV3:
         app.router.add_get("/api/v3/queue", api_queue_stats)
         app.router.add_get("/api/v3/history", api_history)
         app.router.add_get("/health", health)
+        app.router.add_get("/metrics", metrics)
+        app.router.add_get("/trace/{trace_id}", trace_logs)
+        app.router.add_get("/health", health_detailed)
+        app.router.add_get("/health-old", health)
 
         runner = web.AppRunner(app)
         await runner.setup()

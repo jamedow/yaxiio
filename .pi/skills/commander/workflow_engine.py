@@ -956,6 +956,20 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
                             po.record(str(output_text)[:200], False)
                         except Exception:
                             pass
+                        # Phase 3: DSPy 自动 Prompt 优化
+                        try:
+                            from dspy_optimizer import get_dspy_optimizer
+                            dspy_opt = get_dspy_optimizer()
+                            if dspy_opt.is_available():
+                                optimized = dspy_opt.optimize_prompt(
+                                    base_prompt=str(output_text)[:500],
+                                    examples=[{"input": action, "output": str(output_text)[:300]}],
+                                    task_description=f"Improve {action} task output quality"
+                                )
+                                if optimized:
+                                    result["dspy_optimized"] = True
+                        except Exception:
+                            pass
                         issues_str = "; ".join(result.get("key_issues", [])[:3])
                         call_layer(5, "meta_reflect",
                                   task_id=task_id, action=action,

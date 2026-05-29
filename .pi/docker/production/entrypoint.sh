@@ -18,52 +18,35 @@ for i in $(seq 1 30); do
   sleep 0.5
 done
 
-export REDIS_HOST="127.0.0.1"
-export REDIS_PASSWORD="$REDIS_PASS"
+export REDIS_HOST="127.0.0.1" REDIS_PASSWORD="$REDIS_PASS" PYTHONUNBUFFERED=1
 export YAXIO_HOME="/opt/yaxiio/.pi/skills/commander"
-export PYTHONUNBUFFERED=1
-export YAXIO_HOME="/opt/yaxiio/.pi/skills/commander"
-mkdir -p /data/db /data/log; rm -rf /opt/commander
-ln -sf /opt/yaxiio/.pi/skills/commander /opt/commander; mkdir -p /opt/commander/logs
-ln -sf /opt/yaxiio/modules/layer5 /opt/commander/modules/layer5
-ln -sf /opt/yaxiio/modules/layer4 /opt/commander/modules/layer4
-ln -sf /opt/yaxiio/modules/layer3 /opt/commander/modules/layer3
-ln -sf /opt/yaxiio/modules/layer2 /opt/commander/modules/layer2
-ln -sf /opt/yaxiio/modules/layer1 /opt/commander/modules/layer1
-ln -sf /opt/yaxiio/modules/shared /opt/commander/modules/shared
+export COMMANDER_SCRIPT="$YAXIO_HOME/yaxiio.py"
+
+mkdir -p /data/db /data/log /opt/commander/logs
+rm -rf /opt/commander
+ln -sf /opt/yaxiio/.pi/skills/commander /opt/commander
+ln -sf /opt/yaxiio/modules/shared /opt/commander/modules/shared 2>/dev/null
+ln -sf /opt/yaxiio/modules/layer1 /opt/commander/modules/layer1 2>/dev/null
+ln -sf /opt/yaxiio/modules/layer2 /opt/commander/modules/layer2 2>/dev/null
+ln -sf /opt/yaxiio/modules/layer3 /opt/commander/modules/layer3 2>/dev/null
+ln -sf /opt/yaxiio/modules/layer4 /opt/commander/modules/layer4 2>/dev/null
+ln -sf /opt/yaxiio/modules/layer5 /opt/commander/modules/layer5 2>/dev/null
+mkdir -p /opt/commander/data
 
 cd "$COMMANDER_DIR"
-export COMMANDER_SCRIPT="/opt/yaxiio/.pi/skills/commander/yaxiio.py"
-
-pm2 start pi_guardian_v3.py \
-  --name "yaxiio-guardian" \
-  --interpreter python3.12 \
-  --max-restarts 5 \
-  --restart-delay 3000
+pm2 start pi_guardian_v3.py --name yaxiio-guardian --interpreter python3.12 --max-restarts 5 --restart-delay 3000
 echo "[Yaxiio] Guard 已启动"
 sleep 5
 
-# Gateway
 echo "[Yaxiio] 启动 Gateway (WS:3398 HTTP:3399)..."
-nohup python3.12 gateway.py \
-  --ws-port 3398 --http-port 3399 \
-  --redis-host 127.0.0.1 --redis-password "$REDIS_PASS" \
-  > /data/log/gateway.log 2>&1 &
-sleep 2
-
-# Dashboard
-if [ -f dashboard_v2.py ]; then
-  nohup python3.12 dashboard_v2.py --port 3003 > /data/log/dashboard.log 2>&1 &
-  echo "[Yaxiio] Dashboard: http://0.0.0.0:3003"
-fi
+nohup python3.12 gateway.py --ws-port 3398 --http-port 3399 --redis-host 127.0.0.1 --redis-password "$REDIS_PASS" --llm-api-key "${DEEPSEEK_API_KEY:-}" > /data/log/gateway.log 2>&1 &
+sleep 3
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
 echo "║  雅溪 Yaxiio 生产就绪                            ║"
 echo "║  Redis     : 127.0.0.1:6379                      ║"
 echo "║  Gateway   : ws://0.0.0.0:3398 / :3399          ║"
-echo "║  Dashboard : http://0.0.0.0:3003                 ║"
 echo "╚══════════════════════════════════════════════════╝"
 
-# 保持容器存活
 exec sleep infinity

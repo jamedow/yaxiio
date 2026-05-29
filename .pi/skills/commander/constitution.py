@@ -126,6 +126,7 @@ class YaxiioConstitution:
         payload_str = json.dumps(payload, ensure_ascii=False)
         for pattern in self.DANGEROUS_PATTERNS:
             if pattern in payload_str:
+                self.delegated_count += 1  # 降级也算走流水线
                 self._log_violation(action, "DANGEROUS_PATTERN",
                                    f"检测到高危模式 '{pattern}'，已降级到 sandbox")
                 return Verdict.DEGRADED, f"高危操作检测: {pattern}, 已强制 sandbox"

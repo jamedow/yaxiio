@@ -760,6 +760,23 @@ class Commander:
             print("[雅溪] ⚠️ 已有 Commander 运行, 退出", flush=True)
             return
         _r.expire("yaxiio:commander:lock", 120)
+
+        # 锁续期线程: 每 30 秒续期一次, 防止长时间运行后锁过期
+        def _renew_lock():
+            import redis as _rl2
+            _rr = _rl2.Redis(host="127.0.0.1", protocol=2, port=6379,
+                            password=os.environ.get("REDIS_PASSWORD", ""),
+                            decode_responses=True, socket_connect_timeout=3)
+            while self.running:
+                try:
+                    current = _rr.get("yaxiio:commander:lock")
+                    if current and str(current) == str(os.getpid()):
+                        _rr.expire("yaxiio:commander:lock", 120)
+                except Exception:
+                    pass
+                time.sleep(30)
+        threading.Thread(target=_renew_lock, daemon=True, name="lock-renewal").start()
+
         self.pool = BoundedThreadPool(max_workers=5, max_queue=20)
         self.workflow = WorkflowEngine(commander=self)
         self.task_count = 0

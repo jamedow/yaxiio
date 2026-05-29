@@ -551,10 +551,19 @@ class CommanderV3:
             try:
                 import redis
                 r = redis.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
+                # 扫描真实任务 key 数量
+                task_count = 0
+                try:
+                    for key in r.scan_iter("yaxiio:task:*", count=50):
+                        task_count += 1
+                        if task_count >= 1000:
+                            break
+                except Exception:
+                    pass
                 return web.json_response({
                     "commander": bool(r.get("yaxiio:commander:lock")),
                     "guardian": bool(r.get("yaxiio:guardian:leader")),
-                    "active_tasks": r.scard("yaxiio:task:active") or 0,
+                    "active_tasks": task_count,
                     "constitution_checks": int(r.get("yaxiio:constitution:total") or 0),
                     "uptime_seconds": int(time.time() - self._start_time),
                 })

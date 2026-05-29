@@ -594,11 +594,9 @@ class CommanderV3:
         app.router.add_get("/api/v3/status", api_status)
         app.router.add_get("/api/v3/queue", api_queue_stats)
         app.router.add_get("/api/v3/history", api_history)
-        app.router.add_get("/health", health)
         app.router.add_get("/metrics", metrics)
         app.router.add_get("/trace/{trace_id}", trace_logs)
         app.router.add_get("/health", health_detailed)
-        app.router.add_get("/health-old", health)
 
         runner = web.AppRunner(app)
         await runner.setup()

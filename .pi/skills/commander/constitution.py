@@ -184,7 +184,7 @@ class YaxiioConstitution:
             "delegated": self.delegated_count,
             "rejected": self.rejected_count,
             "violations": len(self.violations),
-            "compliance_rate": self.allowed_count / max(1, self.total_checks)
+            "compliance_rate": (self.allowed_count + self.delegated_count) / max(1, self.total_checks)  # Phase 4: 合规率 = (放行+委托)/总数
         }
 
     def recent_violations(self, n: int = 10) -> List[dict]:

@@ -815,7 +815,7 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
             agent_skill = self._agent_skill_map().get(agent_name, "")
             # 支持 thinking 覆盖
             thinking_override = payload.get("_thinking", None)
-            spawned = self.commander.spawn_neuron(agent_name, agent_skill, thinking=thinking_override, task_id=task_id + "-" + sid)
+            spawned = self.commander.spawn_neuron(agent_name, agent_skill, thinking=thinking_override, task_id=task_id)  # Phase 4: 简单任务无 sid, 直接用 task_id
             state["_last_thinking"] = thinking_override or "medium"
             l3["neuron_spawned"] = spawned
             time.sleep(1)
@@ -1087,9 +1087,6 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
                 "prompt": action.get("prompt", action.get("description", action_name))[:500],
                 "tool": action.get("tool", "")
             })
-    def _detect_content_issues(self, *args, **kwargs):
-        return self.gap.detect_content_issues(*args, **kwargs)
-
 
     def stats(self) -> dict:
         with self._lock: active_count = len(self.active)
@@ -1098,6 +1095,4 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         return {"active_workflows": active_count, "total_processed": total,
                 "avg_score": round(sum(recent)/len(recent),2) if recent else 0,
                 "evolution_queue": len(self.evolution_queue())}
-    def _gap_to_subtasks(self, *args, **kwargs):
-        return self.gap.gap_to_subtasks(*args, **kwargs)
 

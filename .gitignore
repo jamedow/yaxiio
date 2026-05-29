@@ -13,4 +13,3 @@ data/db/
 logs/
 *.rdb
 *.aof
-docs/CODE_REVIEW.md

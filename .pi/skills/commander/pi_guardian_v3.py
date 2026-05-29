@@ -43,7 +43,7 @@ REDIS_PASS = os.environ.get("REDIS_PASSWORD", "$REDIS_PASSWORD")
 LLM_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 LLM_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-v4-pro")
-HEALTH_PORT = int(os.environ.get("HEALTH_PORT", "3401"))  # MCP L1 端口
+HEALTH_PORT = int(os.environ.get("HEALTH_PORT", "3399"))  # MCP L1 端口
 
 # Architecture note: Guardian uses subprocess directly because
 # process lifecycle management (spawn/kill/restart) is a system-level
@@ -200,7 +200,7 @@ class HealthChecker:
         try:
             result = subprocess.run(
                 ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-                 f"http://127.0.0.1:{HEALTH_PORT}/",
+                 f"http://127.0.0.1:{HEALTH_PORT}/health",
                  "--connect-timeout", "5", "--max-time", "5"],
                 capture_output=True, text=True, timeout=10
             )

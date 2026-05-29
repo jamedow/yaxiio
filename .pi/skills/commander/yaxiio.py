@@ -55,7 +55,7 @@ class BoundedThreadPool:
             if self.pending >= self.max_queue:
                 self.rejected += 1
                 return False
-            self.pending += 1
+            self._lock.acquire(); self.pending += 1; self._lock.release()
 
         def _wrapper():
             try:

@@ -24,24 +24,26 @@ export PYTHONUNBUFFERED=1
 mkdir -p /opt/commander /data/db /data/log
 
 cd "$COMMANDER_DIR"
+
 pm2 start pi_guardian_v3.py \
   --name "yaxiio-guardian" \
   --interpreter python3.12 \
   --max-restarts 5 \
   --restart-delay 3000
 echo "[Yaxiio] Guard 已启动"
+sleep 5
 
-sleep 3
-
+# Gateway
 echo "[Yaxiio] 启动 Gateway (WS:3398 HTTP:3399)..."
-python3.12 gateway.py \
+nohup python3.12 gateway.py \
   --ws-port 3398 --http-port 3399 \
-  --redis-host 127.0.0.1 --redis-password "$REDIS_PASS" &
-
+  --redis-host 127.0.0.1 --redis-password "$REDIS_PASS" \
+  > /data/log/gateway.log 2>&1 &
 sleep 2
 
+# Dashboard
 if [ -f dashboard_v2.py ]; then
-  python3.12 dashboard_v2.py --port 3003 &
+  nohup python3.12 dashboard_v2.py --port 3003 > /data/log/dashboard.log 2>&1 &
   echo "[Yaxiio] Dashboard: http://0.0.0.0:3003"
 fi
 
@@ -53,4 +55,5 @@ echo "║  Gateway   : ws://0.0.0.0:3398 / :3399          ║"
 echo "║  Dashboard : http://0.0.0.0:3003                 ║"
 echo "╚══════════════════════════════════════════════════╝"
 
-wait -n
+# 保持容器存活
+exec sleep infinity

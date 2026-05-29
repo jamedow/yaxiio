@@ -71,7 +71,7 @@ class TaskStateMachine:
     def __init__(self, redis_host="127.0.0.1", redis_port=6379, redis_pass=None):
         if redis_pass is None:
             redis_pass = os.environ.get("REDIS_PASSWORD", "")
-        self.r = redis.Redis(host=redis_host, port=redis_port,
+        self.r = redis.Redis(host=redis_host, protocol=2, port=redis_port,
                              password=redis_pass, decode_responses=True)
 
     # ═══════════════════════════════════════════════

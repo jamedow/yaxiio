@@ -753,7 +753,7 @@ class Commander:
     def run(self):
         # 单实例锁: 防止双守护各启一个 Commander
         import redis as _rl
-        _r = _rl.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD", ""), decode_responses=True)
+        _r = _rl.Redis(host="127.0.0.1", protocol=2, port=6379, password=os.environ.get("REDIS_PASSWORD", ""), decode_responses=True)
         if not _r.setnx("yaxiio:commander:lock", str(os.getpid())):
             print("[雅溪] ⚠️ 已有 Commander 运行, 退出", flush=True)
             return

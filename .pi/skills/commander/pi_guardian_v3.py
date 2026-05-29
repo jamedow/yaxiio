@@ -183,7 +183,7 @@ class HealthChecker:
         """检查 Redis 是否可连接"""
         try:
             import redis as redis_lib
-            r = redis_lib.Redis(
+            r = redis_lib.Redis(protocol=2, 
                 host=REDIS_HOST, port=REDIS_PORT,
                 password=REDIS_PASS or None,
                 decode_responses=True, socket_connect_timeout=3
@@ -317,7 +317,7 @@ class AutoRepair:
             time.sleep(2)
             # 验证
             import redis as redis_lib
-            r = redis_lib.Redis(
+            r = redis_lib.Redis(protocol=2, 
                 host=REDIS_HOST, port=REDIS_PORT,
                 password=REDIS_PASS or None,
                 decode_responses=True, socket_connect_timeout=3
@@ -553,7 +553,7 @@ class CommanderScorer:
 
         try:
             import redis as _r
-            r = _r.Redis(host=REDIS_HOST, port=REDIS_PORT,
+            r = _r.Redis(protocol=2, host=REDIS_HOST, port=REDIS_PORT,
                         password=REDIS_PASS, decode_responses=True,
                         socket_connect_timeout=3)
 
@@ -636,7 +636,7 @@ class DualGuard:
         self.r = None
         try:
             import redis as _r
-            self.r = _r.Redis(host=REDIS_HOST, port=REDIS_PORT,
+            self.r = _r.Redis(protocol=2, host=REDIS_HOST, port=REDIS_PORT,
                             password=REDIS_PASS, decode_responses=True,
                             socket_connect_timeout=3)
         except:

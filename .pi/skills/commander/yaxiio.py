@@ -188,6 +188,12 @@ class Commander:
         p = data.get("payload", {})
         a = p.get("action", "unknown")
 
+        # ── Trace ID (贯穿全链路) ──
+        import uuid
+        trace_id = data.get("trace_id") or str(uuid.uuid4())[:12]
+        data["trace_id"] = trace_id
+        p["_trace_id"] = trace_id
+
         # ── ⚖️ 宪法审查 ──
         verdict, reason = self.constitution.review(a, p)
         stats = self.pool.stats() if self.pool else {}
@@ -359,6 +365,7 @@ class Commander:
             "type": "response",
             "taskId": task_id,
             "from": "yaxiio",
+            "trace_id": data.get("trace_id", ""),
             "to": from_who,
             "payload": {
                 "status": status,
@@ -460,6 +467,7 @@ class Commander:
             "LLM_MODEL": model,
             "LLM_THINKING": thinking,
             "LLM_API_KEY": os.environ.get("DEEPSEEK_API_KEY", os.environ.get("LLM_API_KEY", "")),
+            "TRACE_ID": task_id,
             "REDIS_HOST": "127.0.0.1",
             "REDIS_PORT": "6379",
             "REDIS_PASSWORD": os.environ.get("REDIS_PASSWORD", ""),
@@ -653,11 +661,8 @@ class Commander:
         except: pass
         return {"status": "success", "imported": count}
 
-    def _cleanup_sandboxes(self) -> dict:
-        c = 0
-        for d in glob.glob("/tmp/yaxiio-fix-*") + glob.glob("/tmp/yaxiio-drill-*"):
-            shutil.rmtree(d, ignore_errors=True); c += 1
-        return {"status": "cleaned", "removed": c}
+    def _cleanup_sandboxes(self) -> dict:  # DinD SandboxManager
+        from sandbox_manager import SandboxManager; return SandboxManager().cleanup_expired()
 
     def _run_tool(self, tid, script_path: str, payload: dict) -> dict:
         """运行 tools/ 目录下的脚本"""

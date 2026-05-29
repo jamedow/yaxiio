@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mongodb": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic/mcp-server-mongodb"
+      ],
+      "enabled": true
+    }
+  }
+}

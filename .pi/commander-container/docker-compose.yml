@@ -1,0 +1,78 @@
+version: "3.8"
+
+services:
+  # ── Redis（消息总线 + 状态存储）──
+  redis:
+    image: redis:7-alpine
+    container_name: commander-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-commander-secret} --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-commander-secret}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - commander-net
+
+  # ── Commander 主进程 ──
+  commander:
+    build: .
+    container_name: commander-core
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-commander-secret}
+      - DASHBOARD_PORT=3003
+      # 可选：LLM API（DeepSeek/OpenAI 兼容）
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      # 可选：MongoDB
+      - MONGO_URI=${MONGO_URI:-}
+      # 可选：Sentinel 高可用
+      - USE_SENTINEL=${USE_SENTINEL:-false}
+      - SENTINEL_HOSTS=${SENTINEL_HOSTS:-}
+    volumes:
+      - commander_logs:/app/logs
+      - commander_data:/app/data
+    ports:
+      - "${DASHBOARD_PORT:-3003}:3003"
+    restart: unless-stopped
+    networks:
+      - commander-net
+
+  # ── Dashboard（可独立部署）──
+  dashboard:
+    build: .
+    container_name: commander-dashboard
+    command: python3 /app/agents/dashboard_v2.py
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-commander-secret}
+      - DASHBOARD_PORT=3003
+    ports:
+      - "3004:3003"
+    restart: unless-stopped
+    networks:
+      - commander-net
+
+volumes:
+  redis_data:
+  commander_logs:
+  commander_data:
+
+networks:
+  commander-net:
+    driver: bridge

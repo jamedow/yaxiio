@@ -1,0 +1,171 @@
+{
+  "agents": {
+    "翻译官": {
+      "name": "翻译官",
+      "role": "翻译官",
+      "status": "archived",
+      "quadrant": "core",
+      "keep_warm": true,
+      "max_idle": 300,
+      "optimize_priority": 1,
+      "pid": null,
+      "prompt": "审计页面中文残留, LLM翻译, 写入MongoDB+Redis",
+      "metrics": {
+        "tasks": 0,
+        "success": 0,
+        "fail": 0,
+        "avg_response_ms": 0,
+        "last_active": "2026-05-23T15:24:34"
+      },
+      "versions": [
+        {
+          "version": 1,
+          "created": "2026-05-23T15:23:40",
+          "changes": "Initial"
+        }
+      ],
+      "created": "2026-05-23T15:23:40",
+      "updated": "2026-05-23T15:24:38"
+    },
+    "商务经理": {
+      "name": "商务经理",
+      "role": "商务经理",
+      "status": "archived",
+      "quadrant": "core",
+      "keep_warm": true,
+      "max_idle": 300,
+      "optimize_priority": 2,
+      "pid": null,
+      "prompt": "接待客户, 挖掘需求, 输出结构化需求清单",
+      "metrics": {
+        "tasks": 0,
+        "success": 0,
+        "fail": 0,
+        "avg_response_ms": 0,
+        "last_active": "2026-05-23T15:24:34"
+      },
+      "versions": [
+        {
+          "version": 1,
+          "created": "2026-05-23T15:23:40",
+          "changes": "Initial"
+        }
+      ],
+      "created": "2026-05-23T15:23:40",
+      "updated": "2026-05-23T15:24:38"
+    },
+    "售前经理": {
+      "name": "售前经理",
+      "role": "售前经理",
+      "status": "archived",
+      "quadrant": "core",
+      "keep_warm": true,
+      "max_idle": 300,
+      "optimize_priority": 3,
+      "pid": null,
+      "prompt": "查询MongoDB产品库, 生成报价方案",
+      "metrics": {
+        "tasks": 0,
+        "success": 0,
+        "fail": 0,
+        "avg_response_ms": 0,
+        "last_active": "2026-05-23T15:24:35"
+      },
+      "versions": [
+        {
+          "version": 1,
+          "created": "2026-05-23T15:23:40",
+          "changes": "Initial"
+        }
+      ],
+      "created": "2026-05-23T15:23:40",
+      "updated": "2026-05-23T15:24:38"
+    },
+    "审计官": {
+      "name": "审计官",
+      "role": "审计官",
+      "status": "archived",
+      "quadrant": "strategic",
+      "keep_warm": false,
+      "max_idle": 600,
+      "optimize_priority": 4,
+      "pid": null,
+      "prompt": "跨页面语义抽检, DQF-MQM审计, 输出报告",
+      "metrics": {
+        "tasks": 0,
+        "success": 0,
+        "fail": 0,
+        "avg_response_ms": 0,
+        "last_active": null
+      },
+      "versions": [
+        {
+          "version": 1,
+          "created": "2026-05-23T15:23:40",
+          "changes": "Initial"
+        }
+      ],
+      "created": "2026-05-23T15:23:40",
+      "updated": "2026-05-23T15:23:40"
+    },
+    "心跳监控": {
+      "name": "心跳监控",
+      "role": "心跳监控",
+      "status": "archived",
+      "quadrant": "utility",
+      "keep_warm": true,
+      "max_idle": 120,
+      "optimize_priority": 8,
+      "pid": null,
+      "prompt": "Agent心跳检测, 自动告警",
+      "metrics": {
+        "tasks": 0,
+        "success": 0,
+        "fail": 0,
+        "avg_response_ms": 0,
+        "last_active": null
+      },
+      "versions": [
+        {
+          "version": 1,
+          "created": "2026-05-23T15:23:40",
+          "changes": "Initial"
+        }
+      ],
+      "created": "2026-05-23T15:23:40",
+      "updated": "2026-05-23T15:23:40"
+    },
+    "ru-审计官": {
+      "name": "ru-审计官",
+      "role": "俄语审计官",
+      "status": "archived",
+      "quadrant": "ephemeral",
+      "keep_warm": false,
+      "max_idle": 600,
+      "optimize_priority": 99,
+      "pid": null,
+      "prompt": "一次性俄语审计任务",
+      "metrics": {
+        "tasks": 0,
+        "success": 0,
+        "fail": 0,
+        "avg_response_ms": 0,
+        "last_active": null
+      },
+      "versions": [
+        {
+          "version": 1,
+          "created": "2026-05-23T15:23:40",
+          "changes": "Initial"
+        }
+      ],
+      "created": "2026-05-23T15:23:40",
+      "updated": "2026-05-23T15:23:40"
+    }
+  },
+  "stats": {
+    "total_created": 6,
+    "total_destroyed": 0,
+    "total_tasks": 0
+  }
+}

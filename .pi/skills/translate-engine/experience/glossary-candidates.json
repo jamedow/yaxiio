@@ -1,0 +1,21 @@
+{
+  "_note": "候选术语队列。累计出现3次自动提醒人工审核合并进 glossary.json。被采纳后从此文件移除。",
+  "pending": [
+    {"zh": "达克罗涂层", "en": "Dacromet coating", "ru": "покрытие Дакромет", "ar": "طلاء داكروميت", "es": "recubrimiento Dacromet", "category": "surfaceTreatment", "context": "风电紧固件防氢脆", "occurrences": 2},
+    {"zh": "预紧力", "en": "preload force / clamping force", "ru": "усилие предварительной затяжки", "ar": "حمل مسبق", "es": "fuerza de precarga", "category": "mechanical", "context": "螺栓连接", "occurrences": 2},
+    {"zh": "晶间腐蚀", "en": "intergranular corrosion", "ru": "межкристаллитная коррозия", "category": "corrosion", "context": "不锈钢失效模式", "occurrences": 1},
+    {"zh": "碟形弹簧", "en": "Belleville spring / disc spring", "de": "Tellerfeder", "category": "component", "context": "预紧力补偿", "occurrences": 1},
+    {"zh": "摩擦焊", "en": "friction welding", "ru": "сварка трением", "ar": "لحام احتكاكي", "es": "soldadura por fricción", "category": "process", "context": "铜铝过渡端子制造工艺", "occurrences": 3, "_readyForReview": true},
+    {"zh": "氢脆", "en": "hydrogen embrittlement", "ru": "водородная хрупкость", "ar": "تقصف هيدروجيني", "es": "fragilización por hidrógeno", "category": "failureMode", "context": "10.9级螺栓电镀锌失效", "occurrences": 2},
+    {"zh": "冷拔包覆", "en": "cold-drawn cladding", "ru": "холоднотянутая плакировка", "ar": "تغليف مسحوب على البارد", "es": "revestimiento extruido en frío", "category": "process", "context": "铜覆钢接地极制造", "occurrences": 3, "_readyForReview": true},
+    {"zh": "刺破针", "en": "piercing pin", "ru": "прокалывающая игла", "ar": "إبرة ثاقبة", "es": "pin perforador", "category": "component", "context": "接地线夹技术", "occurrences": 2},
+    {"zh": "预绞丝护套", "en": "preformed armor rod", "ru": "протектор из скрученных проволок", "ar": "قضيب حماية مجدول", "es": "varilla preformada de protección", "category": "component", "context": "耐张线夹出口保护", "occurrences": 2},
+    {"zh": "铝热反应", "en": "thermite reaction", "ru": "термитная реакция", "ar": "تفاعل ثرمايت", "es": "reacción termita", "category": "process", "context": "放热焊接焊药", "occurrences": 2},
+    {"zh": "电偶腐蚀", "en": "galvanic corrosion", "ru": "гальваническая коррозия", "ar": "تآكل جلفاني", "es": "corrosión galvánica", "category": "corrosion", "context": "铜铝连接失效", "occurrences": 3, "_readyForReview": true},
+    {"zh": "应力控制体", "en": "stress control body", "ru": "тело контроля напряжённости поля", "ar": "جسم التحكم في الإجهاد", "es": "cuerpo de control de campo", "category": "component", "context": "冷缩电缆附件", "occurrences": 1},
+    {"zh": "抗震支架", "en": "seismic bracing", "ru": "сейсмическая опора / антисейсмический крепеж", "ar": "دعامة زلزالية / تدعيم زلزالي", "es": "soporte sísmico / arriostramiento sísmico", "category": "component", "context": "消防管道地震防护", "occurrences": 2},
+    {"zh": "槽式桥架", "en": "solid-bottom cable tray", "ru": "кабельный лоток со сплошным дном", "ar": "حامل كابلات بقاع مصمت", "es": "bandeja portacables de fondo ciego", "category": "component", "context": "电缆敷设", "occurrences": 2},
+    {"zh": "铝蠕变", "en": "aluminum creep", "ru": "ползучесть алюминия", "ar": "زحف الألمنيوم", "es": "fluencia del aluminio", "category": "failureMode", "context": "铜铝过渡设备线夹", "occurrences": 1}
+  ],
+  "merged": []
+}

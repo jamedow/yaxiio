@@ -1,0 +1,11 @@
+{
+  "lastUpdated": "2026-05-21",
+  "tokens": {
+    "colors": {
+      "zhongli-gold": {"value":"#D4A843","added":"2026-05","context":"品牌主色调，钟离契约之神"},
+      "danxia": {"value":"#C87D4A","added":"2026-05","context":"丹霞橙，链接hover/眼影光晕"}
+    }
+  },
+  "componentStats": {},
+  "a11yIssues": []
+}

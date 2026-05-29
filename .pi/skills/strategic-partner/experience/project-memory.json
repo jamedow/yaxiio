@@ -1,0 +1,70 @@
+{
+  "lastUpdated": "2026-05-23",
+  "milestones": [
+    {"date":"2026-05-21","event":"电力行业126个L4坦克页全部填充，零空壳"},
+    {"date":"2026-05-21","event":"TECH_DOCS.md v1.2完成，含四级导航架构+Playwright验收"},
+    {"date":"2026-05-21","event":"8个AI智能体全部升级经验积累系统"},
+    {"date":"2026-05-23","event":"电力行业11个L5产品×3篇=33篇中文博客产出，覆盖输变电9个+储能2个"},
+    {"date":"2026-05-23","event":"33篇博客四语翻译完成(EN/ES/RU/AR)，全部通过CMS API入库并发布，文章ID 110-151"},
+    {"date":"2026-05-23","event":"GitHub Archive存档系统上线：126→424→2120页坦克页，5语言×4行业。GitHub Pages已启用"},
+    {"date":"2026-05-23","event":"页面变更检测系统v1.0上线：manifest.json基线 + check_diff.py三信号检测（sitemap diff + content hash + page inventory）"},
+    {"date":"2026-05-23","event":"发现132个新产品页 + 3个内容变更——sitemap从430增长到556页"}
+  ],
+  "currentPhase": "全站坦克页存档完成(424产品×5语言=2120页)，变更检测系统就位。待处理：132新产品生成 + 市政行业数据补齐"
+},
+  "batchOpsLessons": {
+    "apiEndpoint": "/api/cms/multilingual/articles",
+    "langCodeFormat": "full locale: zh-CN, en-US, es-ES, ru-RU, ar-SA (not short codes)",
+    "tagsField": "must be JSON array string: json.dumps(['tag1','tag2']). Plain comma strings cause MySQL Data Truncation",
+    "specialChars": "¥ and < > symbols in content trigger 400 Bad Request (likely WAF/XSS filter). Replace ¥ with RMB text, avoid raw <>",
+    "userAgent": "403 Forbidden without User-Agent: Mozilla/5.0 (Cloudflare/WAF blocks urllib default)",
+    "publishExplicit": "status=1 on create is DRAFT. Must call POST .../{id}/publish to go live.",
+    "updatePartial": "PUT .../{id} accepts partial langContents. Add translations by sending only new langCode entries (API merges).",
+    "batchSpeed": "~1 article/sec via direct PUT with inline translations vs. ~minutes/article via async backend translate API",
+    "retryHandling": "Python urllib with 3-attempt loop + 2-3s backoff handles 502/503 from server overload. Max 2-3 concurrent writes.",
+    "translationQuality": "Full SEO fields required. Content can be condensed to 80-150 words while preserving core narrative. Key claims consistency > verbatim length for EEAT."
+  },
+  "blogBatches": {
+    "batch1_trans_strain": "110-112: 耐张线夹 3篇 (事故叙事/成本对比/四层传力链)",
+    "batch2_trans_ground": "121-126: 接地极3篇 + 接地线夹3篇 (电镀vs冷拔/选型四步/铁丝事故/刺破针/安装规范)",
+    "batch3_trans_dtl_cold": "127-132: DTL端子3篇 + 冷缩附件3篇 (原电池腐蚀/摩擦焊/煤矿防爆/场景选型)",
+    "batch4_trans_exo_bim": "133-138: 放热焊3篇 + 铜铝设备线夹3篇 (短路熔断/铝热反应/焊夹互补/铝蠕变/摩擦焊原理)",
+    "batch5_trans_rod_tray": "139-148: 螺杆3篇 + 槽式桥架3篇 (弯曲事故/氢脆/选型三要素/渗水/全寿命/材质)",
+    "batch6_ess_storage": "142-151: 电池模组螺杆3篇 + 消防抗震支架3篇 + 接地极事故1篇 (SS316/45度角/防火)"
+  },
+  "nextSteps": [
+    "132个新产品(农业41+电力91)缓存并生成5语言坦克页",
+    "市政行业30页Redis数据补齐后生成存档",
+    "跨品类白皮书产出(光伏防腐指南/风电预紧力管理/输变电接地材料选型/储能抗震消防)",
+    "翻译引擎术语词典从blog产出中抽取高频术语补入glossary.json"
+  ],
+  "archiveSystem": {
+    "description": "LightingMetal Archive — GitHub Pages 静态存档系统，为全站产品页生成SEO优化的HTML镜像",
+    "repo": "github.com/jamedow/lightingmetal-archive",
+    "pagesUrl": "https://jamedow.github.io/lightingmetal-archive/",
+    "architecture": {
+      "dataSource": "生产环境 /_i18n/{lang}/industries/... API → Redis 中的产品 JSON",
+      "generator": "Python 脚本读取缓存 → 生成含 Schema.org + canonical + SHA256 的 HTML",
+      "hosting": "GitHub Pages (jamedow.github.io)",
+      "languages": "zh/en从API直取；es/ru/ar用zh数据fallback，UI标签已本地化"
+    },
+    "keyLearnings": {
+      "dataAccess": "_i18n API是唯一可靠的外部数据源。SSR页面渲染空壳(i18n key未翻译)是因为Redis未同步，不是页面不存在。不要爬HTML——直接调API",
+      "sitemapAsInventory": "sitemap.xml是最权威的页面清单。通过URL深度(4段 after /industries/)区分产品页和分类页",
+      "mcpSizeLimit": "MCP github_push_files 对大文件(>10 files, >50KB)不稳定。大量文件推送使用 git clone + token auth + commit + push 更可靠",
+      "rateLimitStrategy": "_i18n API 每请求~10s超时。大批量抓取用本地JSON缓存（product_cache/zh/），避免重复API调用",
+      "changeDetection": "三信号系统——sitemap diff发现新增/下线；content hash发现修改；manifest.json存储基线。采样50页足够日常巡检",
+      "canonicalStrategy": "存档页加 <link rel=canonical> 指向主站对应URL。robots.txt Allow /products/ + /blog/，其余Disallow。不阻止索引——要的是外链不是屏蔽"
+    },
+    "directoryStructure": {
+      "pattern": "products/{lang}/{industry}/{L2}/{L3}/{L4-slug}.html",
+      "example": "products/zh/power/transmission/transmission-grounding/transmission-ground-rods.html"
+    },
+    "seoConfig": {
+      "robotsTxt": "User-agent: * / Allow: /products/ / Allow: /blog/ / Allow: /sitemap.xml / Disallow: /",
+      "sitemapXml": "2120 URLs, monthly changefreq, priority 0.7",
+      "perPage": "<link rel=canonical> + Schema.org Product JSON-LD + Open Graph + SHA256 integrity",
+      "criticalRule": "不加 noindex！索引存档页→canonical归权主站→Google收录存档页但权重归lightingmetal.com"
+    }
+  }
+}

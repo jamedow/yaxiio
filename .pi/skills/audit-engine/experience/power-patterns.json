@@ -1,0 +1,165 @@
+{
+  "industry": "power",
+  "lastAudit": "2026-05-23T15:52:00Z",
+  "totalAudits": 2,
+  "knownPatterns": [
+    {
+      "patternId": "PWR-001",
+      "title": "vue-i18n v10 @ 字符导致 SSR 500",
+      "dimension": "contentIntegrity",
+      "severity": "P0",
+      "rootCause": "templateDefect",
+      "description": "i18n JSON 翻译文本中的 @ 字符被 vue-i18n v10 消息编译器解析为 linked message 起始符，文本如 MΩ@500V 导致 SyntaxError: code 10 → 页面 500",
+      "detection": "grep -rn '@' i18n/zh/industries/ --include='*.json' | grep -v 'ogTitle|twTitle|email|@context|faq.*@'",
+      "fix": "将 @ 替换为括号等价表述，如 MΩ@500V → MΩ（500V 测试）",
+      "foundIn": [
+        "hydropower-underwater",
+        "hydropower-underwater(en)"
+      ],
+      "lastSeen": "2026-05-21",
+      "recurrenceCount": 1,
+      "autoCheck": "grep -rPn '(?<!ogTitle|twTitle|email|@context)[^\"@]+@[^\"@]+' i18n/ --include='*.json'"
+    },
+    {
+      "patternId": "PWR-002",
+      "title": "L1/L2 JSON slug 使用旧缩写导致 404",
+      "dimension": "linkIntegrity",
+      "severity": "P0",
+      "rootCause": "dataSourceError",
+      "description": "power.json 和 L2 JSON 中 cat{N}Slug 使用早期缩写(pv-/roof-/wind-/td-/ess-/hydro-)而非全名(solar-farm-/rooftop-solar-/wind-turbine-/transmission-/energy-storage-/hydropower-) → L1→L2→L3 链接全部 404",
+      "detection": "检查每个 L2 JSON 的 cat{N}Slug 最后一段是否为实际存在的 L3 目录名",
+      "fix": "将 cat{N}Slug 从缩写前缀替换为全名前缀，中英文版本同步",
+      "foundIn": [
+        "power.json(zh)",
+        "power.json(en)",
+        "solar-farm.json(en)",
+        "rooftop-solar.json(en)",
+        "transmission.json(en)",
+        "energy-storage.json(en)",
+        "hydropower.json(zh)",
+        "hydropower.json(en)"
+      ],
+      "lastSeen": "2026-05-21",
+      "recurrenceCount": 1,
+      "autoCheck": "cd i18n/zh/industries/{industry} && python3 -c \"import json,os;d=json.load(open(f'{l2}.json'));...\""
+    },
+    {
+      "patternId": "PWR-003",
+      "title": "L4 JSON 文件放错 L3 目录",
+      "dimension": "contentIntegrity",
+      "severity": "P1",
+      "rootCause": "humanError",
+      "description": "L4 JSON 文件物理位置与 parentName 字段指向的 L3 分类不一致，导致 autoChildren API 在错误的 L3 页面上渲染多余的 L4 卡片",
+      "detection": "检查每个 L4 JSON 的 parentName 是否与其所在 L3 目录名语义一致",
+      "fix": "将文件移动到正确的 L3 目录",
+      "foundIn": [
+        "wind-turbine/wind-turbine-flange-bolts/wind-turbine-nacelle-hex-bolts.json(zh+en)"
+      ],
+      "lastSeen": "2026-05-21",
+      "recurrenceCount": 1,
+      "autoCheck": "python3 -c \"import json,glob;...\" 比对各L4 JSON的parentName与实际目录"
+    },
+    {
+      "patternId": "PWR-004",
+      "title": "L2 JSON 文件缺失导致页面空白",
+      "dimension": "contentIntegrity",
+      "severity": "P0",
+      "rootCause": "processGap",
+      "description": "新建 L2 场景后遗漏创建对应的 {l2}.json，导致 L2 页面组件加载不到 i18n 数据，l2Catalog 为空数组 → 所有内容区块被 v-if 跳过 → 页面空白",
+      "detection": "检查每个 L2 目录下是否有同名的 .json 文件，且包含 cat{N}Name 目录数据",
+      "fix": "参考已有 L2 JSON 模板创建新文件，填入对应 L3 品类的目录条目",
+      "foundIn": [
+        "wind-turbine.json(zh)"
+      ],
+      "lastSeen": "2026-05-21",
+      "recurrenceCount": 1,
+      "autoCheck": "for l2 in discovered L2 dirs: verify {l2}.json exists and has cat1Name"
+    },
+    {
+      "patternId": "PWR-005",
+      "title": "cat slug 含 /l4/ 路径段导致 500",
+      "dimension": "linkIntegrity",
+      "severity": "P0",
+      "rootCause": "dataSourceError",
+      "description": "L3 JSON 的 cat{N}Slug 值错误包含 /l4/ 路径段(如 industries/power/hydropower/l4/xxx)，生成的路由 URL 不匹配任何 Nuxt 页面模板 → 500",
+      "detection": "grep -rn '\"l4/' i18n/ --include='*.json'",
+      "fix": "将 /l4/ 替换为实际的 L3 目录名",
+      "foundIn": [
+        "hydropower-underwater.json(zh)"
+      ],
+      "lastSeen": "2026-05-21",
+      "recurrenceCount": 1,
+      "autoCheck": "grep -rn '\"l4/' i18n/ --include='*.json'"
+    },
+    {
+      "patternId": "PROD-001",
+      "title": "ogTitle field-level translation gap — Chinese product names left in SEO ogTitle",
+      "dimension": "multilingualSync",
+      "severity": "P1",
+      "rootCause": "processGap",
+      "description": "ogTitle field is frequently missed during bulk translation. Pattern: product name (Chinese) + \" — LightingMetal\" instead of translated name. Affected 64 en, 71 es, 28 ru pages.",
+      "detection": "Aggregate: {$match: {\"modules.seo.ogTitle\": {$regex: \"[一-龥]\"}}}",
+      "fix": "Add ogTitle to translation checklist. Post-translation audit should scan ogTitle specifically.",
+      "foundIn": [
+        "en: 64 pages",
+        "es: 71 pages",
+        "ru: 28 pages"
+      ],
+      "lastSeen": "2026-05-23",
+      "recurrenceCount": 1,
+      "autoCheck": "mongosh --eval \"db.page_content.aggregate([{\\$match: {lang: \"en\", \"modules.seo.ogTitle\": {\"\\\": \"[一-龥]\"}}}, {\"\\\": \"count\"}])\""
+    },
+    {
+      "patternId": "PROD-002",
+      "title": "hero.alt image alt text translation gap",
+      "dimension": "multilingualSync",
+      "severity": "P1",
+      "rootCause": "processGap",
+      "description": "hero.alt (image alt text) carrying Chinese product descriptions in non-zh pages. Same pattern as ogTitle. Affected en:31, ru:29 pages.",
+      "detection": "{$match: {\"modules.hero.alt\": {$regex: \"[一-龥]\"}}}",
+      "fix": "Add hero.alt to translation checklist with ogTitle.",
+      "foundIn": [
+        "en: 31 pages",
+        "ru: 29 pages"
+      ],
+      "lastSeen": "2026-05-23",
+      "recurrenceCount": 1
+    },
+    {
+      "patternId": "PROD-003",
+      "title": "Full language missing — translation pipeline never executed for fr",
+      "dimension": "contentIntegrity",
+      "severity": "P0",
+      "rootCause": "processGap",
+      "description": "Entire French language has 0 MongoDB documents. Translation pipeline was never built or executed for fr. All 821 zh pages need French translations.",
+      "detection": "db.page_content.countDocuments({lang: \"fr\"})",
+      "fix": "Run AI batch translation of all 821 zh pages to fr using DeepSeek API.",
+      "foundIn": [
+        "fr: all 821 pages"
+      ],
+      "lastSeen": "2026-05-23",
+      "recurrenceCount": 1
+    }
+  ],
+  "statistics": {
+    "totalIssuesFound": 271,
+    "byDimension": {
+      "terminology": 0,
+      "contentIntegrity": 17,
+      "parameterValidity": 0,
+      "multilingualSync": 5,
+      "linkIntegrity": 27
+    },
+    "byRootCause": {
+      "templateDefect": 2,
+      "dataSourceError": 35,
+      "processGap": 5,
+      "humanError": 3
+    },
+    "bySeverity": {
+      "P0": 7,
+      "P1": 9,
+      "P2": 33
+    }
+  }
+}

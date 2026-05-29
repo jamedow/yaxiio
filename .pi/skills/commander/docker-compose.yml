@@ -1,0 +1,65 @@
+version: "3.8"
+
+# Quick start (SQLite only, no external DB):
+#   docker-compose -f docker-compose.yml up yaxiio-lite
+#
+# Full stack (Redis + MongoDB):
+#   docker-compose up -d
+
+services:
+  # ── SQLite-only mode (no Redis/MongoDB) ──
+  yaxiio-lite:
+    image: yaxiio:latest
+    container_name: yaxiio-lite
+    ports:
+      - "3004:3004"
+      - "3401-3405:3401-3405"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - YAXIIO_DB=/app/data/yaxiio.db
+      - YAXIIO_MODE=lite
+    volumes:
+      - lite_data:/app/data
+    restart: unless-stopped
+
+  # ── Full stack mode ──
+  yaxiio:
+    image: yaxiio:latest
+    container_name: yaxiio
+    ports:
+      - "3004:3004"
+      - "3401-3405:3401-3405"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-Yaxiio2026}
+      - MONGO_URI=mongodb://mongo:27017
+    volumes:
+      - ./blackboard:/app/.pi/blackboard
+    depends_on:
+      - redis
+      - mongo
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: yaxiio-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-Yaxiio2026}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    profiles: ["full"]
+
+  mongo:
+    image: mongo:7
+    container_name: yaxiio-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    profiles: ["full"]
+
+volumes:
+  redis_data:
+  mongo_data:
+  lite_data:

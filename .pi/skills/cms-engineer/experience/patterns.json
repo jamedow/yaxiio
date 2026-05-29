@@ -1,0 +1,56 @@
+{
+  "lastUpdated": "2026-05-23",
+  "publishedArticles": [],
+  "whitepaperConversionRates": [],
+  "multilingualSyncIssues": [],
+  "archiveIntegration": {
+    "note": "CMS管理后台内容与GitHub存档通过_i18n API桥接。CMS更新→Redis刷新→_i18n API更新→diff系统检测→触发存档更新",
+    "gapFound": "市政行业30页存在于sitemap但_i18n API返回空——Redis与CMS数据不同步的典型案例",
+    "solution": "CMS内容发布后需确认Redis同步完成(调用_i18n API验证)，建议加CMS发布后的webhook通知"
+  },
+  "batchArticlePatterns": {
+    "apiBase": "/api/cms/multilingual",
+    "endpoints": {
+      "createArticle": "POST /api/cms/multilingual/articles",
+      "getArticle": "GET /api/cms/multilingual/articles/{id}?lang={langCode}",
+      "updateTranslations": "PUT /api/cms/multilingual/articles/{id}",
+      "publishArticle": "POST /api/cms/multilingual/articles/{id}/publish",
+      "listArticles": "GET /api/cms/multilingual/articles?lang={langCode}&status=1&page=1&size=20"
+    },
+    "langParamFormat": {
+      "note": "lang parameter must use full locale codes, not short codes",
+      "chinese": "zh-CN",
+      "english": "en-US",
+      "spanish": "es-ES",
+      "russian": "ru-RU",
+      "arabic": "ar-SA",
+      "wrongExamples": ["zh", "en", "es", "ru", "ar"]
+    },
+    "createPayload": {
+      "required": ["articleCode"],
+      "fields": ["articleCode", "categoryId", "author", "status", "isTop", "keywords"],
+      "langContents": {
+        "structure": "{langCode: {articleTitle, articleSubtitle, articleContent, articleSummary, seoTitle, seoDescription, seoKeywords, ogTitle, ogDescription, tags, urlSlug}}",
+        "tagsFormat": "tags must be a JSON array string: json.dumps(['tag1','tag2']). Plain comma-separated strings cause MySQL Data Truncation error 'Invalid JSON text'",
+        "specialCharNote": "The ¥ symbol and < > characters in content may cause 400 Bad Request. Replace ¥ with RMB/literal amount, < with proper escaping. The server likely has WAF/XSS filtering."
+      }
+    },
+    "updatePayload": {
+      "note": "PUT /api/cms/multilingual/articles/{id} accepts partial langContents. To add translations to existing article, send ONLY the new langCode entries. The API merges, not replaces."
+    },
+    "publishing": {
+      "note": "Articles created with status=1 are DRAFTS. Must explicitly call POST .../{id}/publish to make them publicly visible. Batch publish via parallel curl."
+    }
+  },
+  "batchTranslationPatterns": {
+    "strategy": "For 33+ articles × 4 languages, direct LLM translation via PUT is faster than backend async /api/cms/ai/translate (which stores tasks in volatile memory and loses state on restart).",
+    "speedRate": "~1 article/sec via PUT with inline translations. Backend async: minutes per article plus polling overhead.",
+    "retryStrategy": "Python urllib with 3-attempt loop + 2-3s delay handles 502/503 from overload. WAF requires User-Agent: Mozilla/5.0 header.",
+    "contentOptimization": "For SEO+translation quality: translate full title/subtitle/summary/SEO fields. Content can be condensed to 80-150 words while preserving core narrative and technical claims. Full verbatim translation is unnecessary for EEAT—consistency of key claims matters more."
+  },
+  "serverStability": {
+    "502BadGateway": "Server overloads under heavy parallel writes. Implement per-request retry + backoff. Use max 2-3 concurrent writes.",
+    "403Forbidden": "WAF blocks requests without browser User-Agent. Always include 'User-Agent: Mozilla/5.0'.",
+    "400BadRequest": "Caused by: special chars (¥, <, >) triggering WAF/XSS filter, or tags field not being valid JSON array, or articleCode collision with existing."
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "lastUpdated": "2026-05-23",
+  "deployments": [
+    {"date":"2026-05-21","type":"customer-portal","version":"56ef9f4","result":"success","duration":"165s","note":"电力行业126L4页面上线"},
+    {"date":"2026-05-23","type":"redis-sync","version":"manual","result":"success","note":"市政行业MongoDB→Redis同步,1817 keys,双格式写入"}
+  ],
+  "redisKeyPattern": {
+    "documented": "2026-05-23",
+    "format": "page:{redisPath}:{field}:{lang}",
+    "separator": ":",
+    "langPosition": "末尾（后缀 :zh）",
+    "granularity": "字段级（每个i18n字段一个独立key）",
+    "prefixVariants": {
+      "production": "page:industries:{industry}:{L2}:{L3}:{L4?}:{field}:{lang}",
+      "localBuild": "page:{industry}:{L2}:{L3}:{L4?}:{field}:{lang}（strip industries/）"
+    },
+    "example": "page:industries:power:transmission:transmission-grounding:heroTitle:zh",
+    "gotchas": [
+      "文档曾误记为 page:{lang}:industries/{path}，lang在开头且用/分隔——完全错误",
+      "本地构建strip industries/前缀与生产不一致→建议双格式写入",
+      "每个产品50-200个key（字段数×语言数）",
+      "filter by endsWith(':lang') 来区分语言"
+    ],
+    "syncScript": "Node.js: MongoDB.find() → parts.slice(1).join(':') → redis.set()",
+    "relatedFiles": [
+      "server/routes/_i18n/[lang]/[...path].get.ts",
+      "doc/TECH_DOCS.md §18.3"
+    ]
+  },
+  "municipalSync": {
+    "date": "2026-05-23",
+    "source": "i18n-backup JSON → MongoDB page_content → Redis",
+    "documents": 177,
+    "redisKeys": 1817,
+    "languages": ["zh", "en"],
+    "note": "L4产品27个为LLM新生成内容，非i18n-backup恢复"
+  }
+}

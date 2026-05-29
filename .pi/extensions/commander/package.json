@@ -1,0 +1,15 @@
+{
+  "name": "pi-commander",
+  "version": "1.0.0",
+  "description": "Commander Global Event Router — 事件驱动的多Agent全局调度器，监听所有LLM/工具调用并智能分发",
+  "type": "module",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "dependencies": {
+    "redis": "^4.6.0",
+    "@sinclair/typebox": "^0.34.0"
+  },
+  "keywords": ["commander", "agent", "router", "orchestrator", "pi-extension"],
+  "license": "Apache-2.0"
+}

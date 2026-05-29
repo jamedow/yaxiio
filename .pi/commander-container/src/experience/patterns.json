@@ -1,0 +1,50 @@
+{
+  "version": 7,
+  "lastUpdated": "2026-05-23",
+  "architecture": "中心调度 + 扁平P2P + Agent Factory + 六大优化引擎 + A2A协议层",
+  "capabilities": {
+    "static_agents": ["翻译官","商务经理","售前经理"],
+    "dynamic_factory": "agent-factory.sh (analyze→create→spawn→destroy)",
+    "communication": "双通道(Pub/Sub广播 + List关键指令+ACK)",
+    "dashboard": "Web(HTTP:3002) + TUI(终端)",
+    "lifecycle": "PM2进程管理 + AutoScaler弹性伸缩",
+    "dedup": "TaskAnalyzer 关键词MD5指纹 + 模糊匹配",
+    "scaling": "AutoScaler 队列≥3扩容 / 空闲>600s缩容",
+    "evolution": "ABTester A/B测试24h自动推广/废弃",
+    "failover": "AgentFailover 心跳→备选→降级 + Redis Sentinel HA + 五级Degradation",
+    "degradation": "TaskDegradation L0~L4 按任务类型+可用Agent动态降级",
+    "observability": "Dashboard 2.0 四维指标(实时/性能/成本/系统) + 五条告警规则 + 3s自动刷新",
+    "llm_routing": "LLMRouter OpenAI兼容LLM路由决策 + RouteABTester 路由策略A/B对比",
+    "a2a_protocol": "A2AAdapter双向转换 + AgentCard JSON Schema + AgentDiscovery能力发现"
+  },
+  "knownPatterns": [
+    {"id":"CMD-001","title":"Python3.6兼容","fix":"bash版agent.sh","status":"已规避"},
+    {"id":"CMD-002","title":"容器端口映射","fix":"socat/host网络","status":"已知限制"},
+    {"id":"CMD-003","title":"redis-cli SUBSCRIBE三行格式","fix":"read -r循环","status":"已集成"},
+    {"id":"CMD-004","title":"中心化瓶颈","fix":"P2P(replyTo+forward)","status":"已解决"},
+    {"id":"CMD-005","title":"消息类型不足","fix":"7种消息类型","status":"已解决"},
+    {"id":"CMD-006","title":"Agent静态定义无法动态扩展","fix":"agent-factory.sh动态创建Skill+Agent","status":"已解决"},
+    {"id":"CMD-007","title":"任务重复执行浪费资源","fix":"TaskAnalyzer关键词MD5指纹24h去重","status":"v2.1已解决"},
+    {"id":"CMD-008","title":"Agent资源静态分配","fix":"AutoScaler按队列深度弹性扩缩容","status":"v2.1已解决"},
+    {"id":"CMD-009","title":"关键指令Pub/Sub不可靠","fix":"ReliableComm双通道(List+ACK)","status":"v2.1已解决"},
+    {"id":"CMD-010","title":"调度策略依靠直觉调整","fix":"ABTester数据驱动A/B测试自动进化","status":"v2.1已解决"},
+    {"id":"CMD-011","title":"Agent故障无自动转移","fix":"AgentFailover心跳30s→备选链式切换→降级模板","status":"v2.2已解决"},
+    {"id":"CMD-012","title":"Redis单点故障","fix":"RedisHAWrapper Sentinel读写分离+自动故障切换","status":"v2.2已解决"},
+    {"id":"CMD-013","title":"任务无降级机制Agent全挂即中断","fix":"TaskDegradation L0~L4五级降级策略","status":"v2.2已解决"},
+    {"id":"CMD-014","title":"路由决策靠硬编码规则无法感知语义","fix":"LLMRouter OpenAI兼容LLM语义路由决策","status":"v2.3已解决"},
+    {"id":"CMD-015","title":"路由策略无数据驱动优化","fix":"RouteABTester 规则 vs LLM 24h A/B自动决策","status":"v2.3已解决"}
+  ],
+  "fullLifecycle": "analyze → create → spawn → P2P协作 → destroy",
+  "optimizationPipeline": "去重(TaskAnalyzer) → A/B分流(ABTester调度策略) → 拆分 → 降级检测(TaskDegradation L0~L4) → 弹性伸缩(AutoScaler) → LLM路由(LLMRouter+RouteABTester) → 双通道分发(ReliableComm)+故障转移(AgentFailover) → 结果缓存",
+  "modules": {
+    "task_analyzer.py": "任务指纹计算、Redis查重(精确+模糊)、关键词倒排索引、启发式拆分建议",
+    "auto_scaler.py": "队列深度检测、PM2动态扩缩容、核心Agent保护(≥2)、TTL自动回收",
+    "reliable_comm.py": "List关键指令通道(后台线程)、Pub/Sub广播通道、ACK超时重试3次、外部handler注册",
+    "ab_tester.py": "A/B测试生命周期(提出/分流/记录/评估)、最小样本数门槛(10)、自动推广/废弃、策略归档",
+    "commander_v2.py": "六大模块集成、handle_task()完整流程(Sentinel+LLM可选)、完全兼容v1 Pub/Sub主循环",
+    "failover.py": "AgentFailover心跳+备选切换+降级、RedisHAWrapper Sentinel读写分离、TaskDegradation L0~L4五级降级",
+    "llm_router.py": "LLMRouter OpenAI兼容LLM路由决策、RouteABTester规则vsLLM 24h A/B自动决策",
+    "a2a_protocol.py": "A2AAdapter Redis↔A2A双向转换、AgentCard JSON Schema、AgentDiscovery能力注册+模糊发现",
+    "../agents/runtime/dashboard_v2.py": "增强可观测性: MetricsCollector四维指标+AlertEngine五条告警+Flask可视化(port3003)"
+  }
+}

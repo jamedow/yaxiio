@@ -1,0 +1,21 @@
+{
+  "id": "audit-en-62",
+  "from": "translate-engine",
+  "to": "audit-engine",
+  "action": "audit_i18n",
+  "scope": "en-power-solar-cable",
+  "files": [
+    "i18n/en/industries/power/solar-farm/solar-farm-cable-electrical/",
+    "i18n/en/industries/power/solar-farm/solar-farm-grounding-lightning/",
+    "i18n/en/industries/power/solar-farm/solar-farm-sealing-protection/",
+    "i18n/en/industries/power/solar-farm/solar-farm-clamps-fixtures/"
+  ],
+  "checks": [
+    "所有 en 文件 key 与对应 zh 文件一致",
+    "无空字段 / 占位符残留",
+    "标题/CTA/标签翻译质量",
+    "pain/spec/faq 长文本是否仍为中文",
+    "ogLocale 已设为 en_US"
+  ],
+  "created": "2026-05-22T03:30:00Z"
+}

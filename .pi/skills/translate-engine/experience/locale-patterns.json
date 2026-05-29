@@ -1,0 +1,123 @@
+{
+  "en": {
+    "preferredExpressions": {
+      "高强度紧固件": "high-strength fasteners (not 'high intensity fasteners')",
+      "紧固件": "fasteners (not 'fastening parts' or 'fixing pieces')",
+      "品控": "quality control / QC (not 'product control')",
+      "一站式": "one-stop / turnkey (not 'one station')",
+      "盐雾测试": "salt spray test (per ISO 9227, not 'salt fog test')"
+    },
+    "commonMistakes": [
+      {"zh": "…的解决方案", "wrong": "the solution of …", "correct": "… solution (noun adjunct form)"},
+      {"zh": "通过…实现", "wrong": "through … to achieve", "correct": "by … (eliminate redundant 'achieve')"},
+      {"zh": "具有…的特点", "wrong": "has the characteristic of …", "correct": "features … / offers …"},
+      {"zh": "采用…材质", "wrong": "adopts … material", "correct": "made of … / in … (materials use 'in')"},
+      {"zh": "可承受…", "wrong": "can bear …", "correct": "withstands … / rated for …"}
+    ],
+    "tonePreference": "Professional, direct, conversational. Use 'you'/'we'. Avoid passive voice in CTAs. Data statements should be factual: 'tested to 480h salt spray' not 'has undergone 480-hour salt spray testing'."
+  },
+  "ru": {
+    "preferredExpressions": {
+      "紧固件": "крепежные изделия / крепеж",
+      "获取报价": "Получить предложение (not 'Запросить цену')",
+      "品控": "контроль качества",
+      "耐张线夹": "натяжной зажим",
+      "楔形线夹": "клиновой зажим",
+      "放热焊接": "экзотермическая сварка (not 'термитная сварка' for branding)",
+      "铜覆钢": "омеднённая сталь",
+      "冷缩": "холодная усадка (always hyphenated in compound: холодноусадочный)",
+      "抗震支架": "сейсмические опоры / антисейсмический крепеж",
+      "槽式桥架": "кабельный лоток со сплошным дном / лоток сплошного дна",
+      "接地极": "заземлитель"
+    },
+    "commonMistakes": [
+      {"zh": "确保…", "wrong": "обеспечить …", "correct": "гарантировать … (for quality promises)"},
+      {"zh": "适用于…", "wrong": "подходит для …", "correct": "предназначен для … (for technical contexts)"},
+      {"zh": "XX站/变电站", "wrong": "станция XX (name after)", "correct": "ПС XX (подстанция) — Russian convention puts abbreviation before name"},
+      {"zh": "短路电流", "wrong": "ток короткого замыкания (full form every time)", "correct": "ток КЗ (abbreviated after first use, standard in Russian electrical)"}
+    ],
+    "tonePreference": "Formal technical register. Use «» for quotes. Always use non-breaking space before %. Thousand separator: space (1 000), decimal: comma (1,5). Dates: DD.MM.YYYY. Russian electrical engineering has its own ГОСТ terminology—prefer ГОСТ terms over literal translation."
+  },
+  "de": {
+    "preferredExpressions": {
+      "紧固件": "Verbindungselemente / Befestigungsteile",
+      "热镀锌": "feuerverzinkt (not 'heißverzinkt' — Feuer- is the technical prefix)"
+    },
+    "commonMistakes": [
+      {"zh": "配有…", "wrong": "ist mit … ausgestattet", "correct": "mit … / verfügt über … (more concise)"}
+    ],
+    "tonePreference": "Formal business German. Use Sie. Compound nouns preferred."
+  },
+  "ar": {
+    "preferredExpressions": {
+      "耐张线夹": "مشبك شد",
+      "楔形线夹": "مشبك إسفين",
+      "握力": "قوة إمساك / قبضة",
+      "放热焊接": "لحام طارد للحرارة (طارد = exothermic, standard term)",
+      "铜铝过渡": "انتقال نحاس-ألمنيوم",
+      "冷缩": "انكماش بارد",
+      "热缩": "انكماش حراري",
+      "抗震支架": "دعامة زلزالية / تدعيم زلزالي",
+      "接地极": "قضيب تأريض",
+      "变电站": "محطة فرعية (standard Arabic electrical term)"
+    },
+    "commonMistakes": [
+      {"zh": "获取报价", "wrong": "احصل على السعر", "correct": "احصل على عرض سعر (عرض = offer/quotation, not just price)"},
+      {"zh": "电力/输电", "wrong": "كهرباء / نقل الكهرباء", "correct": "نقل القدرة / نقل الطاقة (power transmission, not electricity)"}
+    ],
+    "tonePreference": "Formal business Arabic. Numbers in Eastern Arabic (١٢٣) for body text, Western (123) for technical specs. RTL layout note: in HTML/CMS contexts, ensure dir='rtl' is set on Arabic content containers. Dates: DD/MM/YYYY."
+  },
+  "es": {
+    "preferredExpressions": {
+      "耐张线夹": "grapa de retención (not 'abrazadera de tensión')",
+      "楔形线夹": "grapa de cuña (not 'abrazadera de cuña')",
+      "握力": "fuerza de agarre / agarre (context-dependent, not 'fuerza de sujeción')",
+      "放热焊接": "soldadura exotérmica (not 'soldadura aluminotérmica' for branding)",
+      "铜铝过渡": "transición Cu-Al / transición cobre-aluminio",
+      "冷缩": "contráctil en frío (not 'retráctil en frío')",
+      "热缩": "termorretráctil (not 'termocontraíble')",
+      "抗震支架": "soporte sísmico / arriostramiento sísmico",
+      "储能": "almacenamiento de energía / ESS (keep English acronym)",
+      "槽式桥架": "bandeja portacables de fondo ciego / bandeja de fondo ciego"
+    },
+    "commonMistakes": [
+      {"zh": "联系我们", "wrong": "Contacta con nosotros (informal)", "correct": "Contáctenos (formal, universal)"},
+      {"zh": "螺栓/紧固件", "wrong": "tornillos / sujetadores", "correct": "pernos / fijaciones (industrial context)"},
+      {"zh": "事故/故障", "wrong": "accidente (too generic)", "correct": "fallo / avería (for equipment); accidente (for safety events)"}
+    ],
+    "tonePreference": "Formal Usted form for all business communication. Industrial B2B register. Technical precision over literary elegance."
+  },
+  "fr": {
+    "preferredExpressions": {
+      "获取报价": "Obtenir un devis (not 'Demander un prix')"
+    },
+    "commonMistakes": [],
+    "tonePreference": "Use non-breaking space before : ; ! ? %. «» for quotes with non-breaking spaces."
+  },
+  "pt": {
+    "preferredExpressions": {
+      "紧固件": "fixadores / elementos de fixação"
+    },
+    "commonMistakes": [],
+    "tonePreference": "Use Brazilian variant (você, not tu). Formal business register."
+  },
+  "vi": {
+    "preferredExpressions": {},
+    "commonMistakes": [
+      {"zh": "高强度", "wrong": "cường độ cao (intensity)", "correct": "độ bền cao (strength)"}
+    ],
+    "tonePreference": "Full diacritics mandatory. No word separation issues."
+  },
+  "th": {
+    "preferredExpressions": {},
+    "commonMistakes": [],
+    "tonePreference": "Respect word boundaries even without spaces — use zero-width spaces if needed between clauses."
+  },
+  "id": {
+    "preferredExpressions": {},
+    "commonMistakes": [
+      {"zh": "不锈钢", "wrong": "stainless steel (English loan)", "correct": "baja tahan karat (preferred formal term)"}
+    ],
+    "tonePreference": "Formal but not stiff. Anda form acceptable in business context."
+  }
+}

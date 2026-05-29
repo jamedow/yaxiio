@@ -1,0 +1,36 @@
+# Docker
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 环境
+.env
+.env.local
+*.secret
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 运行时
+logs/
+data/
+*.log
+
+# 测试
+tests/
+test_*.py
+*_test.py
+
+# 临时文件
+.DS_Store
+Thumbs.db

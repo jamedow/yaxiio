@@ -1,0 +1,34 @@
+# Translation Quality Audit Report
+# AUDIT-20260523-001 | 2026-05-23 16:30 UTC
+# Auditor: translate-engine (via pi agent)
+
+## Scope
+- Pages: /, /industries/solar, /industries/solar/solar-farm, /industries/solar/solar-farm/solar-farm-ground-screw
+- Languages: zh, en, ru, ar, es
+- Total pages audited: 18
+
+## Summary
+| Severity | Count | Key Issues |
+|----------|-------|------------|
+| P0       | 3     | Chinese residue on L2/L3 solar pages (all langs), EN homepage Chinese residue |
+| P1       | 3     | Missing SEO meta, missing og:locale, x-default pointing to zh |
+| P2       | 2     | Nav not localized (ru/ar), L4 title = slug |
+
+## Top Issues
+1. **P0** - Solar L2+L3 pages entirely in Chinese for en/ru/ar/es
+2. **P0** - EN homepage has 22 Chinese text segments (data-driven blocks)
+3. **P1** - All solar L2/L3 pages lack meta description
+4. **P1** - x-default should point to /en not /zh
+5. **P2** - RU/AR nav has English items (FAQ, Privacy Policy, Contact Us)
+
+## Recommendations
+1. Translate solar L2/L3 content (~80 fields × 4 langs = 320 translation units)
+2. Fix EN homepage data-driven content Chinese residue
+3. Add SEO metadata + og:locale for each language
+4. Change x-default hreflang to /en
+
+## Next Steps
+1. Run translate-engine batch translation for solar pages
+2. Re-run audit after translation to verify fixes
+3. Add missing i18n UI strings for ru/ar navigation
+

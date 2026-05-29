@@ -42,6 +42,13 @@ class CoordinationServer(MCPServer):
         self.register_tool("release_agent", self.release_agent)
 
     def schedule_agents(self, plan: dict = None, available_agents: list = None) -> dict:
+        # Phase 3: 兼容 call_layer 传入的 JSON 字符串
+        import json as _json_local
+        if isinstance(plan, str):
+            plan = _json_local.loads(plan)
+        if isinstance(available_agents, str):
+            available_agents = _json_local.loads(available_agents)
+
         """为子任务分配Agent（最少负载优先）。"""
         plan = plan or {}
         subtasks = plan.get("subtasks", [])

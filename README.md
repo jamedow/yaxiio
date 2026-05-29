@@ -97,7 +97,7 @@ open http://localhost:3399
 每任务创建隔离 Agent 实例 → 用完销毁，上下文零泄露 → 成功经验提取到 L0 经验库 → Chroma 语义索引 → 下次同类任务自动注入 → DSPy 持续优化 Prompt → 高分模板回写。**这是一条闭合的数据飞轮。用 6 个月的 Yaxiio 和刚装的 Yaxiio，质量天壤之别。**
 
 ### 🎴 能力卡片 + 结构化学符通信
-Agent 的"身份证 + 简历 + 合同"三合一 JSON。卡片定义 input/output Schema → Agent 间用结构化五元组 `<task_id, agent_type, schema, depends>` 通信 → 不靠 LLM 翻译 → Token 消耗降 80%。卡片可导出、可跨组织复用——背靠阿里云 Agent/Skill 市场。
+Agent 的"身份证 + 简历 + 合同"三合一 JSON。卡片定义 input/output Schema → Agent 间用结构化五元组 `<task_id, agent_type, schema, depends>` 通信 → 不靠 LLM 翻译 → Token 消耗降 80%。卡片可导出、可跨组织复用。
 
 ### 📊 五层 MCP + 全链路日志
 每一层独立进程，独立端口。同一个 trace_id 贯穿 L1→L5。`/trace/:id` 拉出完整决策链路："L1 为什么判定为 audit？L2 为什么选了审计官？L5 为什么给了 7.5 分？"——学者做论文、IoT 工程师调产线，不靠猜。
@@ -109,7 +109,7 @@ Agent 的"身份证 + 简历 + 合同"三合一 JSON。卡片定义 input/output
 | 场景 | Yaxiio 做什么 |
 |------|-------------|
 | 🌐 **外贸 B2B** | 询盘 → 产品匹配 → 报价生成 → 多语言部署，全自动 |
-| 🏗️ **阿里云机房搭建** | 模板克隆体系管理数百台服务器部署流程 |
+| 🏗️ **云基础设施部署** | 模板克隆体系管理数百台服务器部署流程 |
 | 🔬 **学术研究** | 全链路可追溯的 Agent 决策日志，论文可复现 |
 | 🏭 **IoT 产线** | SQLite 版 200MB，跑在树莓派上，传感器异常 → 自动诊断 |
 

@@ -996,3 +996,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Backward compatibility alias
+CommanderV2 = Commander

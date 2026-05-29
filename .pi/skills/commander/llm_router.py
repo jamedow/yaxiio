@@ -69,7 +69,7 @@ class LLMRouter:
     兼容 OpenAI-compatible API（DeepSeek、通义千问、GLM 等）。
     """
 
-    def __init__(self, redis_client: redis.Redis,
+    def __init__(self, store=None, redis_client: redis.Redis,
                  mongo_client: Any = None,
                  llm_api_key: Optional[str] = None,
                  llm_base_url: Optional[str] = None,
@@ -326,7 +326,7 @@ class RouteABTester:
     MIN_SAMPLE_PER_GROUP = 10
     SIGNIFICANCE_THRESHOLD = 1.1  # B 需比 A 高 10%
 
-    def __init__(self, rule_router, llm_router,
+    def __init__(self, store=None, rule_router, llm_router,
                  redis_client: redis.Redis,
                  mongo_client: Any = None):
         """

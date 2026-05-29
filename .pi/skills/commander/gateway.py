@@ -717,6 +717,7 @@ async def main():
     parser.add_argument("--redis-port", type=int, default=DEFAULT_REDIS_PORT)
     parser.add_argument("--redis-password", default=os.environ.get("REDIS_PASSWORD", ""))
     parser.add_argument("--mongo-uri", default=DEFAULT_STORE_PATH)
+    parser.add_argument("--store-path", default=DEFAULT_STORE_PATH)
     parser.add_argument("--llm-api-key", default=os.environ.get("DEEPSEEK_API_KEY", ""))
     parser.add_argument("--llm-base-url", default=os.environ.get("LLM_BASE_URL", "https://api.deepseek.com/v1"))
     parser.add_argument("--llm-model", default=os.environ.get("LLM_MODEL", "deepseek-chat"))

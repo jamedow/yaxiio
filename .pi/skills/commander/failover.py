@@ -76,9 +76,10 @@ class AgentFailover:
 
     HEARTBEAT_TIMEOUT = 30   # 30s 无心跳 → 失联（符合 R5）
 
-    def __init__(self, redis_client: redis.Redis,
+    def __init__(self, redis_client: redis.Redis, store=None,
                  mongo_client: Any = None):
         self.redis = redis_client
+        self.mongo = store or mongo_client
         self.mongo = mongo_client
         self.agent_heartbeat: Dict[str, float] = {}  # agent_id → last_beat_ts
         self._running = False
@@ -365,9 +366,10 @@ class TaskDegradation:
         "报价":     ["售前经理"],
     }
 
-    def __init__(self, redis_client: redis.Redis,
+    def __init__(self, store=None, redis_client: redis.Redis, store=None,
                  mongo_client: Any = None):
         self.redis = redis_client
+        self.mongo = store or mongo_client
         self.mongo = mongo_client
 
     def get_required_agents(self, task_type: str) -> List[str]:

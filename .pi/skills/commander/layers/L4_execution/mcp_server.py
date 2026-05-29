@@ -9,7 +9,7 @@ L4 Execution Server — 执行层 MCP Server
 """
 
 import sys, os, time, subprocess
-sys.path.insert(0, "/app/.pi/skills/commander")
+sys.path.insert(0, "/opt/commander")
 
 from mcp.protocol import MCPServer, run_mcp_server
 from config import L4_EXECUTION_PORT

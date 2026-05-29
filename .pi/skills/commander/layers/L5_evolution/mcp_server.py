@@ -9,7 +9,7 @@ L5 Evolution Server v2.0 — LLM 驱动的评估与进化
 """
 
 import sys, os, json, time, uuid
-sys.path.insert(0, "/app/.pi/skills/commander")
+sys.path.insert(0, "/opt/commander")
 
 from mcp.protocol import MCPServer, run_mcp_server
 from config import L5_EVOLUTION_PORT, SCORE_THRESHOLD, SKILL_DIR
@@ -19,7 +19,7 @@ def _get_llm():
     try:
         from openai import OpenAI
         import redis as _r
-        r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password="$REDIS_PASSWORD", decode_responses=True)
+        r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD", ""), decode_responses=True)
         key = r.get("yaxiio:config:llm_api_key") or os.environ.get("DEEPSEEK_API_KEY", "")
         if not key:
             return None
@@ -323,7 +323,7 @@ Output ONLY the Python code, no explanation."""
             
             # Register in Redis
             import redis as _r
-            r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password="$REDIS_PASSWORD", decode_responses=True)
+            r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD", ""), decode_responses=True)
             r.hset("tools:registry", tool_name, json.dumps({
                 "name": tool_name, "desc": requirement[:80],
                 "usage": f"python3 /opt/commander/tools/{tool_name}.py",
@@ -353,7 +353,7 @@ Output ONLY the Python code, no explanation."""
                 f.write(code.strip())
             os.chmod(tool_path, 0o755)
             import redis as _r
-            r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password="$REDIS_PASSWORD", decode_responses=True)
+            r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD", ""), decode_responses=True)
             r.hset("tools:registry", tool_name, json.dumps({
                 "name": tool_name, "desc": requirement[:80],
                 "usage": "python3 " + tool_path,
@@ -381,7 +381,7 @@ Output ONLY the Python code, no explanation."""
         browser_result = ""
         if depth == "deep":
             try:
-                sys.path.insert(0, "/app/.pi/skills/commander/mcp_servers")
+                sys.path.insert(0, "/opt/commander/mcp")
                 from browser_agent import BrowserAgent
                 agent = BrowserAgent(headless=True)
                 search_task = f"Search for latest information about {topic}. Find key specifications, standards, and trends. Extract the most important findings."

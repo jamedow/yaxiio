@@ -768,7 +768,7 @@ class Commander:
         for layer in ["L1_perception","L2_planning","L3_coordination","L4_execution","L5_evolution"]:
             try:
                 subprocess.Popen(
-                    [sys.executable, f"/app/.pi/skills/commander/layers/{layer}/mcp_server.py"],
+                    [sys.executable, f"/opt/commander/layers/{layer}/mcp_server.py"],
                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
                 )
             except: pass

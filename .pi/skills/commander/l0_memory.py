@@ -35,6 +35,20 @@ class L0Memory:
                     pass
         except Exception as e:
             print(f"[L0] retrieve error: {e}", flush=True)
+
+        # Phase 3: Chroma 语义搜索 — 补充关键词匹配未命中的经验
+        if len(exps) < 3:
+            try:
+                from modules.layer1.vector_store_chroma import ChromaVectorStore
+                vs = ChromaVectorStore()
+                semantic = vs.search_experiences(intent, top_k=5)
+                for item in semantic:
+                    meta = item.get("metadata", {})
+                    if meta and meta not in exps:
+                        exps.append(meta)
+            except Exception:
+                pass  # Chroma 未安装时静默降级
+
         return exps[:5]
 
     def _save_web_knowledge(self, intent: str, concept: str, facts: list, domain: str = "general"):

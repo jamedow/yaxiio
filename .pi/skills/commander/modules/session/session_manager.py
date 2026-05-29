@@ -96,7 +96,7 @@ class SessionManager:
         if not HAS_REDIS:
             return None
         try:
-            r = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT,
+            r = redis_lib.Redis(protocol=2, host=REDIS_HOST, port=REDIS_PORT,
                                 password=REDIS_PASSWORD,
                                 decode_responses=True,
                                 socket_connect_timeout=5,

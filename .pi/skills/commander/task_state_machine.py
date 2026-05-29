@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 # Yaxiio v1.1 — AGPLv3
 # Copyright (C) 2026 Yaxiio Contributors

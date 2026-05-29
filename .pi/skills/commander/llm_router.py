@@ -524,7 +524,7 @@ class RouteABTester:
 # ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    r = redis.Redis(host="127.0.0.1", port=6379,
+    r = redis.Redis(protocol=2, host="127.0.0.1", port=6379,
                     password=os.environ.get("REDIS_PASSWORD", ""), decode_responses=True)
 
     # 模拟 Agent

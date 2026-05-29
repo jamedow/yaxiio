@@ -142,7 +142,7 @@ print("=" * 60)
 
 try:
     import redis as redis_lib
-    r = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True)
+    r = redis_lib.Redis(protocol=2, host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True)
     r.ping()
     print("  ✅ Redis PING 成功")
     

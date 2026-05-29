@@ -550,7 +550,7 @@ class HealthChecker:
         if not HAS_REDIS:
             return None  # 未安装，跳过
         try:
-            r = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT,
+            r = redis_lib.Redis(protocol=2, host=REDIS_HOST, port=REDIS_PORT,
                                 password=REDIS_PASSWORD,
                                 socket_connect_timeout=3)
             r.ping()
@@ -598,7 +598,7 @@ class EvolutionListener:
     def _listen_redis(self):
         while not self._stop_event.is_set():
             try:
-                r = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT,
+                r = redis_lib.Redis(protocol=2, host=REDIS_HOST, port=REDIS_PORT,
                                     password=REDIS_PASSWORD,
                                     socket_connect_timeout=5,
                                     socket_keepalive=True)
@@ -783,7 +783,7 @@ class CommandServer:
         # 触发 Commander 的进化流程
         if HAS_REDIS:
             try:
-                r = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT,
+                r = redis_lib.Redis(protocol=2, host=REDIS_HOST, port=REDIS_PORT,
                                     password=REDIS_PASSWORD,
                                     socket_connect_timeout=3)
                 r.publish(EVOLUTION_CHANNEL, json.dumps({

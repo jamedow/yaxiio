@@ -3,7 +3,7 @@ from flask import Flask, jsonify, render_template_string, send_from_directory
 
 app = Flask(__name__, static_folder="/opt/commander/dashboard", static_url_path="")
 REDIS_PASS = os.environ.get("REDIS_PASSWORD", "")
-r = _r.Redis(host="127.0.0.1", port=6379, password=REDIS_PASS, decode_responses=True)
+r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password=REDIS_PASS, decode_responses=True)
 
 # ── Static files ──
 @app.route("/")

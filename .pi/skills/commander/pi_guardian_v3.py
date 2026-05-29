@@ -420,6 +420,11 @@ class CommanderManager:
     @classmethod
     def _launch(cls, script_path: str) -> bool:
         """启动指定脚本作为 Commander"""
+        # 清理可能残留的 Commander 锁
+        try:
+            import redis; r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASS, protocol=2, decode_responses=True)
+            r.delete("yaxiio:commander:lock")
+        except: pass
         cls.comm_proc = subprocess.Popen(
             [sys.executable, script_path],
             stdout=subprocess.PIPE,

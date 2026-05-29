@@ -10,7 +10,7 @@ class HybridScorer:
     ANOMALY_THRESHOLD = 3  # 人机分差 > 3 触发审查
     
     def __init__(self, redis_host="127.0.0.1", redis_port=6379, redis_pass="$REDIS_PASSWORD"):
-        self.r = _r.Redis(host=redis_host, port=redis_port, password=redis_pass, decode_responses=True)
+        self.r = _r.Redis(protocol=2, host=redis_host, port=redis_port, password=redis_pass, decode_responses=True)
     
     def calculate(self, task_id: str, ai_score: float, human_review: dict = None) -> dict:
         """计算最终评分"""

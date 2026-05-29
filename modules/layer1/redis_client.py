@@ -15,7 +15,7 @@ class RedisClient:
         self._initialized = True
         self._connect()
     def _connect(self):
-        self.client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True, socket_connect_timeout=5, socket_keepalive=True)
+        self.client = redis.Redis(protocol=2, host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True, socket_connect_timeout=5, socket_keepalive=True)
     def ping(self) -> bool:
         try: return self.client.ping()
         except: return False

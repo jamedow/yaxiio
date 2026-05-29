@@ -13,7 +13,7 @@ REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 REDIS_PASS = os.environ.get("REDIS_PASSWORD", "$REDIS_PASSWORD")
 
 def query(args):
-    r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASS, decode_responses=True)
+    r = redis.Redis(protocol=2, host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASS, decode_responses=True)
     
     pattern = args.key or "page:*"
     limit = args.limit or 50

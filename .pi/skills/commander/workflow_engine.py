@@ -8,6 +8,7 @@
 """
 import json, time, threading, os, tempfile, subprocess, shutil, uuid
 from mcp_bridge import call_layer
+from mcp.protocol import MCPClient
 
 # 状态机
 from task_state_machine import TaskStateMachine
@@ -615,7 +616,7 @@ class WorkflowEngine:
         self.snapshot.cleanup(task_id)
         try:
             import redis as _r
-            r = _r.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD", ""), decode_responses=True)
+            r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD", ""), decode_responses=True)
 
             # === L0 Memory: Save structured experience ===
             self.l0._save_experience(task_id, subtasks, final_score, agents_used, r)

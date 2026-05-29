@@ -10,7 +10,7 @@ MONGO = os.environ.get("MONGO_URI", "mongodb://$MONGO_HOST:27017")
 CN = re.compile(r'[\u4e00-\u9fff]')
 def has_cn(s): return bool(CN.search(str(s)))
 
-r = _r.Redis(host="127.0.0.1", port=6379, password="$REDIS_PASSWORD", decode_responses=True)
+r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password="$REDIS_PASSWORD", decode_responses=True)
 key = r.get("yaxiio:config:llm_api_key") or os.environ.get("DEEPSEEK_API_KEY", "")
 llm = OpenAI(api_key=key, base_url="https://api.deepseek.com/v1", max_retries=1, timeout=30)
 LANG = {"en":"English","ru":"Russian","ar":"Arabic","es":"Spanish"}

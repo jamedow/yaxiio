@@ -51,7 +51,7 @@ class Planner:
     def _init_redis(self):
         if not HAS_REDIS:
             return None
-        return redis_lib.Redis(host=os.environ.get("REDIS_HOST", "127.0.0.1"),
+        return redis_lib.Redis(protocol=2, host=os.environ.get("REDIS_HOST", "127.0.0.1"),
                                 port=int(os.environ.get("REDIS_PORT", "6379")),
                                 password=os.environ.get("REDIS_PASSWORD", ""),
                                 decode_responses=True)

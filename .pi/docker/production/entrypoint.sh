@@ -20,10 +20,20 @@ done
 
 export REDIS_HOST="127.0.0.1"
 export REDIS_PASSWORD="$REDIS_PASS"
+export YAXIO_HOME="/opt/yaxiio/.pi/skills/commander"
 export PYTHONUNBUFFERED=1
-mkdir -p /opt/commander /data/db /data/log
+export YAXIO_HOME="/opt/yaxiio/.pi/skills/commander"
+mkdir -p /data/db /data/log; rm -rf /opt/commander
+ln -sf /opt/yaxiio/.pi/skills/commander /opt/commander; mkdir -p /opt/commander/logs
+ln -sf /opt/yaxiio/modules/layer5 /opt/commander/modules/layer5
+ln -sf /opt/yaxiio/modules/layer4 /opt/commander/modules/layer4
+ln -sf /opt/yaxiio/modules/layer3 /opt/commander/modules/layer3
+ln -sf /opt/yaxiio/modules/layer2 /opt/commander/modules/layer2
+ln -sf /opt/yaxiio/modules/layer1 /opt/commander/modules/layer1
+ln -sf /opt/yaxiio/modules/shared /opt/commander/modules/shared
 
 cd "$COMMANDER_DIR"
+export COMMANDER_SCRIPT="/opt/yaxiio/.pi/skills/commander/yaxiio.py"
 
 pm2 start pi_guardian_v3.py \
   --name "yaxiio-guardian" \

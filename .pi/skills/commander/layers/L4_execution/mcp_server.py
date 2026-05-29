@@ -106,7 +106,7 @@ class ExecutionServer(MCPServer):
         """Dispatch task to Commander via PubSub. Returns taskId."""
         import redis as _r, json as _j, uuid, time
         try:
-            rr = _r.Redis(host="127.0.0.1", port=6379, password="$REDIS_PASSWORD", decode_responses=True)
+            rr = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password="$REDIS_PASSWORD", decode_responses=True)
             tid = f"mcp-{uuid.uuid4().hex[:8]}"
             msg = {"type":"task","taskId":tid,"from":"mcp-l4","to":"commander","payload":{"action":action,"codebase":codebase,"issue":issue,**kwargs}}
             subs = rr.publish("yaxiio:agent:commander", _j.dumps(msg, ensure_ascii=False))
@@ -120,7 +120,7 @@ class ExecutionServer(MCPServer):
         """Dispatch to neuron and await result (orchestration primitive)"""
         import redis as _r, json as _j, time, subprocess, os
         
-        r = _r.Redis(host="127.0.0.1", port=6379, password="$REDIS_PASSWORD", decode_responses=True)
+        r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password="$REDIS_PASSWORD", decode_responses=True)
         
         # 1. Ensure neuron is running
         try:

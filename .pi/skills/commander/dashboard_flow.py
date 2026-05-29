@@ -6,7 +6,7 @@ from flask import Flask, jsonify, render_template_string
 
 app = Flask(__name__)
 REDIS_PASS = os.environ.get("REDIS_PASSWORD", "")
-r = _r.Redis(host="127.0.0.1", port=6379, password=REDIS_PASS, decode_responses=True)
+r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password=REDIS_PASS, decode_responses=True)
 
 HTML = """<!DOCTYPE html>
 <html lang="zh">

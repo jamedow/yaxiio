@@ -59,7 +59,7 @@ class MCPServerConfig:
                  description: str = "",
                  tools: List[str] = None,
                  headers: Dict[str, str] = None,
-                 timeout_s: int = DEFAULT_MCP_TIMEOUT_S):
+                 timeout_s: int = DEFAULT_MCP_TIMEOUT_S, **kwargs):
         self.name = name
         self.url = url.rstrip("/")
         self.description = description
@@ -136,7 +136,7 @@ class MCPCallResult:
                  result: Any = None,
                  error: str = None,
                  latency_ms: float = 0,
-                 rpc_id: int = 0):
+                 rpc_id: int = 0, **kwargs):
         self.server_name = server_name
         self.tool_name = tool_name
         self.success = success
@@ -489,7 +489,7 @@ class MCPRouter:
 
     def __init__(self,
                  mcp_client: MCPRemoteClient,
-                 agent_discovery=None):
+                 agent_discovery=None, **kwargs):
         self.mcp = mcp_client
         self.discovery = agent_discovery
 

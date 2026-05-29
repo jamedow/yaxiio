@@ -76,8 +76,8 @@ class AgentFailover:
 
     HEARTBEAT_TIMEOUT = 30   # 30s 无心跳 → 失联（符合 R5）
 
-    def __init__(self, redis_client: redis.Redis, store=None,
-                 mongo_client: Any = None):
+    def __init__(self, redis_client: redis.Redis,
+                 mongo_client: Any = None, store=None):
         self.redis = redis_client
         self.mongo = store or mongo_client
         self.mongo = mongo_client
@@ -366,8 +366,8 @@ class TaskDegradation:
         "报价":     ["售前经理"],
     }
 
-    def __init__(self, store=None, redis_client: redis.Redis, store=None,
-                 mongo_client: Any = None):
+    def __init__(self, redis_client: redis.Redis,
+                 mongo_client: Any = None, store=None):
         self.redis = redis_client
         self.mongo = store or mongo_client
         self.mongo = mongo_client

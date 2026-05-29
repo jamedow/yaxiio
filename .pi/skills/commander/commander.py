@@ -124,7 +124,7 @@ class Commander:
         else:
             import redis as redis_lib
             self._redis_wrapper = None
-            redis_for_modules = redis_lib.Redis(
+            redis_for_modules = redis_lib.Redis(protocol=2, 
                 host=redis_host, port=redis_port,
                 password=redis_password, decode_responses=True,
             )
@@ -935,7 +935,7 @@ def main():
     if not redis_password:
         print("[雅溪 Yaxiio] ⚠️ REDIS_PASSWORD 未设置，Redis 连接将无认证")
 
-    r = redis_lib.Redis(
+    r = redis_lib.Redis(protocol=2, 
         host=redis_host, port=redis_port,
         password=redis_password, decode_responses=True,
     )

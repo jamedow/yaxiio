@@ -51,6 +51,7 @@ class SkillManager:
         redis_client: redis_lib.Redis,
         mongo_client=None,
         pi_config_path: str = ".pi",
+        **kwargs,
     ):
         self.redis = redis_client
         self.mongo = mongo_client

@@ -36,7 +36,7 @@ class ReliableComm:
                  redis_port: int = 6379,
                  redis_password: str = None):
         self.agent_id = agent_id
-        self.redis = redis.Redis(
+        self.redis = redis.Redis(protocol=2, 
             host=redis_host, port=redis_port,
             password=redis_password or os.environ.get("REDIS_PASSWORD", ""), decode_responses=True,
         )

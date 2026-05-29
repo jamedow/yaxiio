@@ -53,6 +53,7 @@ class MCPManager:
         redis_client: redis_lib.Redis,
         mongo_client=None,
         mcp_config_path: str = ".pi/agent/mcp.json",
+        **kwargs,
     ):
         self.redis = redis_client
         self.mongo = mongo_client
@@ -503,7 +504,7 @@ class MCPBootstrap:
     用于系统启动时同步文件配置到 Redis 注册表。
     """
 
-    def __init__(self, mcp_manager: MCPManager, config_path: str = ".pi/agent/mcp.json"):
+    def __init__(self, mcp_manager: MCPManager, config_path: str = ".pi/agent/mcp.json", **kwargs):
         self.manager = mcp_manager
         self.config_path = Path(config_path)
 

@@ -260,7 +260,7 @@ class AgentDiscovery:
     供 LLMRouter 做语义路由时的能力匹配。
     """
 
-    def __init__(self, store=None, redis_client: redis.Redis):
+    def __init__(self, redis_client: redis.Redis):
         self.redis = redis_client
 
     def register(self, card: AgentCard):

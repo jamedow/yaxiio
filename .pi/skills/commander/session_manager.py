@@ -160,7 +160,7 @@ class SessionManager:
     async def initialize(self):
         """初始化 Redis 和 MongoDB 连接。"""
         if HAS_REDIS:
-            self._redis = aioredis.Redis(
+            self._redis = aioredis.Redis(protocol=2, 
                 host=self.redis_host,
                 port=self.redis_port,
                 password=self.redis_password,

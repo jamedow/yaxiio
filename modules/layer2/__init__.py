@@ -4,3 +4,6 @@ from .model_router import ModelRouter
 from .agent_registry import AgentRegistry
 from .rag_manager import RAGManager
 from .agent_inheritance import AgentInheritance
+from .multi_provider import MultiProviderRouter
+from .intent_router import SemanticIntentRouter
+from .model_router_v2 import IntelligentModelRouter

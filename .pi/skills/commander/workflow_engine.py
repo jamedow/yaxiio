@@ -82,6 +82,39 @@ class WorkflowEngine:
         from gap_analyzer import GapAnalyzer
         self.gap = GapAnalyzer()
 
+        # ── L2: Semantic Intent Router (replaces INTENT_TOOL_MAP) ──
+        from modules.layer2.intent_router import SemanticIntentRouter
+        try:
+            from modules.layer1.vector_store_chroma import ChromaVectorStore
+            _vs = ChromaVectorStore()
+        except Exception:
+            from modules.layer1.vector_store import MemVectorStore
+            _vs = MemVectorStore()
+        self.intent_router = SemanticIntentRouter(
+            vector_store=_vs,
+            redis_client=self.commander.redis if self.commander else None
+        )
+
+        # ── L2: Intelligent Model Router ──
+        from modules.layer2.model_router_v2 import IntelligentModelRouter
+        self.model_router_v2 = IntelligentModelRouter(
+            redis_client=self.commander.redis if self.commander else None
+        )
+
+        # ── L3: Async Orchestrator + Redis Data Bus ──
+        from modules.layer3.async_orchestrator import AsyncOrchestrator
+        from modules.layer3.redis_data_bus import RedisDataBus
+        self.async_orch = AsyncOrchestrator(
+            commander=self.commander,
+            max_concurrent=int(os.environ.get("YAXIIO_MAX_CONCURRENT", "10")),
+            total_timeout=float(os.environ.get("YAXIIO_TASK_TIMEOUT", "600")),
+            subtask_timeout=float(os.environ.get("YAXIIO_SUBTASK_TIMEOUT", "120")),
+        )
+        self.data_bus = RedisDataBus(
+            redis_client=self.commander.redis if self.commander else None
+        )
+
+
     def process(self, task_id: str, payload: dict):
         if MCP_LAYERS_ENABLED.get("L1"):
             return {"mcp_routed": True, "layer": "L1", "phase": "not_implemented", "task_id": task_id}
@@ -387,6 +420,28 @@ class WorkflowEngine:
     def _orchestrate_subtasks(self, task_id: str, subtasks: list, payload: dict) -> dict:
         if MCP_LAYERS_ENABLED.get("L3"):
             return {"mcp_routed": True, "layer": "L3", "phase": "not_implemented"}
+
+        # ── Async path (feature-flagged) ──
+        _use_async = os.environ.get("YAXIIO_ASYNC_ORCHESTRATOR", "false").lower() == "true"
+        if _use_async and hasattr(self, "async_orch") and self.async_orch:
+            try:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                results = loop.run_until_complete(
+                    self.async_orch.execute(task_id, subtasks, payload)
+                )
+                loop.close()
+                # Write results to data_bus
+                if hasattr(self, "data_bus") and self.data_bus:
+                    for sid, r in results.items():
+                        self.data_bus.put(task_id, sid, r)
+                print(f"[WF] {task_id} AsyncOrchestrator: {len(results)} results", flush=True)
+                return results
+            except Exception as e:
+                print(f"[WF] {task_id} AsyncOrchestrator failed ({e}), fallback to thread pool", flush=True)
+
+        # ── Thread pool fallback (existing logic) ──
 
         """并行编排: 无依赖的子任务同时发射，依赖满足后立即启动"""
         from concurrent.futures import ThreadPoolExecutor, as_completed

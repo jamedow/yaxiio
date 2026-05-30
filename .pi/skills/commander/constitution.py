@@ -123,18 +123,18 @@ class YaxiioConstitution:
         self._load_forbidden_actions()
         self.total_checks += 1
 
-        # ── 规则0: 语义校验（新增，必须在白名单之前）──
+        # ── 规则1: 系统白名单 ──
+        if action in self.SYSTEM_OPS:
+            self.allowed_count += 1
+            return Verdict.ALLOWED, f"系统白名单: {action}"
+
+        # ── 规则1.5: 语义校验（白名单之后，禁止执行之前）──
         semantic = self.verifier.verify(action, payload)
         if not semantic["passed"]:
             self.delegated_count += 1
             self._log_violation(action, "SEMANTIC_CHECK",
                                f"语义校验失败: {semantic['issues'][0][:100]}")
             return Verdict.DEGRADED, f"语义校验失败: {semantic['issues'][0]}"
-
-        # ── 规则1: 系统白名单 ──
-        if action in self.SYSTEM_OPS:
-            self.allowed_count += 1
-            return Verdict.ALLOWED, f"系统白名单: {action}"
 
         # ── 规则2: 禁止直接执行 ──
         if action in self.FORBIDDEN_DIRECT:

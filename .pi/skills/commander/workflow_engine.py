@@ -1010,50 +1010,10 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         return l4
 
     def _wait_for_neuron_response(self, task_id: str, agent_name: str, timeout: int = 120) -> dict:
-        """轮询等待 neuron 通过 Pub/Sub 发布的结果。
-
-        Neuron 在 think_and_act 完成后会发布 response 到 Commander 频道。
-        这里订阅 Commander 频道等待对应 task_id 的响应。
-        """
-        if not self.commander or not self.commander.redis:
-            return {"status": "error", "error": "无法连接 Redis 等待响应"}
-
-        print(f"[WF] 等待 {agent_name} 响应 (task={task_id}, timeout={timeout}s)...", flush=True)
-        start = time.time()
-
-        try:
-            pubsub = self.commander.redis.client.pubsub()
-            pubsub.subscribe("lightingmetal:agent:commander")
-
-            while time.time() - start < timeout:
-                msg = pubsub.get_message(timeout=1.0)
-                if not msg or msg["type"] != "message":
-                    continue
-
-                try:
-                    data = json.loads(msg["data"])
-                except json.JSONDecodeError:
-                    continue
-
-                # 检查是否是目标 neuron 对当前 task 的响应
-                if data.get("taskId") == task_id and data.get("type") == "response":
-                    payload = data.get("payload", {})
-                    elapsed = time.time() - start
-                    print(f"[WF] {agent_name} 响应收到 (耗时 {elapsed:.1f}s)", flush=True)
-                    return {
-                        "agent_id": agent_name,
-                        "status": payload.get("status", "unknown"),
-                        "stdout": str(payload.get("thought", payload.get("result", "")))[:5000],
-                        "stderr": "",
-                        "exit_code": 0,
-                        "elapsed_ms": int(elapsed * 1000),
-                    }
-
-            pubsub.close()
-        except Exception as e:
-            return {"status": "error", "error": f"等待 neuron 响应异常: {str(e)[:200]}"}
-
-        return {"status": "timeout", "error": f"{agent_name} 未在 {timeout}s 内响应"}
+        """等待 Neuron 响应 — 委托给 L4 模块"""
+        from workflow_l4 import wait_for_neuron_response
+        redis_client = self.commander.redis.client if self.commander and self.commander.redis else None
+        return wait_for_neuron_response(redis_client, task_id, agent_name, timeout)
 
     def _do_L5(self, task_id: str, action: str, plan: dict, l4: dict, state: dict) -> dict:
         """L5 scoring — UnifiedScorer primary path + legacy fallback"""

@@ -209,10 +209,51 @@ class ReconAgent:
 class TaskReconnaissance:
     """任务侦察器 — 编排探测流程，生成侦察报告"""
 
+    # 不同任务类型的默认侦察维度
+    ACTION_DIMENSIONS = {
+        "site_audit":    ["volume", "complexity", "risk"],      # 审计: 关心文件数和复杂度
+        "site_evolve":   ["volume", "complexity", "scope"],     # 进化: 关心结构和复杂度
+        "site_drill":    ["volume", "risk"],                     # 沙箱演习: 关心体量和风险
+        "site_fix":      ["volume", "risk"],                     # 修复: 定位问题文件
+        "site_build":    ["volume", "scope"],                    # 构建: 关心目录结构
+        "translate":     ["volume"],                              # 翻译: 只关心文件数
+        "i18n":          ["volume", "scope"],                    # 国际化: 关心分布
+        "diagnose":      ["volume", "complexity", "risk"],      # 诊断: 全面
+        "generate":      ["volume", "scope"],                    # 生成: 关心结构
+        "analyze":       ["volume", "complexity", "risk", "scope"],  # 分析: 全面
+    }
+
+    # 默认维度 (当 action 未匹配时)
+    DEFAULT_DIMENSIONS = ["volume", "scope"]
+
     def __init__(self, commander=None):
         self.agent = ReconAgent(commander)
         self.commander = commander
         self.dimensions = RECON_DIMENSIONS
+
+    def select_dimensions(self, payload: dict) -> list:
+        """根据任务类型选择侦察维度。
+
+        优先级:
+          1. payload._recon_dimensions 显式指定
+          2. ACTION_DIMENSIONS 按 action 匹配
+          3. DEFAULT_DIMENSIONS 兜底
+        """
+        # 显式指定
+        explicit = payload.get("_recon_dimensions")
+        if explicit and isinstance(explicit, list):
+            valid = [d for d in explicit if d in self.dimensions]
+            if valid:
+                return valid
+
+        # 按 action 匹配
+        action = str(payload.get("action", "")).lower()
+        for prefix, dims in self.ACTION_DIMENSIONS.items():
+            if action == prefix or action.startswith(prefix):
+                return dims
+
+        # 兜底
+        return self.DEFAULT_DIMENSIONS
 
     def scout(self, task_id: str, payload: dict) -> ReconReport:
         """
@@ -225,30 +266,34 @@ class TaskReconnaissance:
         report = ReconReport()
         start = time.time()
 
+        # Commander 根据任务类型选择维度
+        selected = self.select_dimensions(payload)
+
         # 确定侦察目标
         target = payload.get("codebase", payload.get("target_path", ""))
         if not target:
             target = payload.get("target", "")
 
-        print(f"[侦察] {task_id} 开始侦察, target={target}", flush=True)
+        print(f"[侦察] {task_id} 开始, target={target}, 维度={selected}", flush=True)
 
-        # 维度 1: 体量
-        print(f"[侦察] {task_id} 探测体量...", flush=True)
-        report.volume = self.agent.probe_volume(target)
-        print(f"[侦察] {task_id} 体量: {report.volume.get('total_files',0)} 文件, "
-              f"{report.volume.get('total_size_mb',0)}MB", flush=True)
+        # 逐维度探测 (按需)
+        if "volume" in selected:
+            print(f"[侦察] {task_id} 探测体量...", flush=True)
+            report.volume = self.agent.probe_volume(target)
+            print(f"[侦察] {task_id} 体量: {report.volume.get('total_files',0)} 文件, "
+                  f"{report.volume.get('total_size_mb',0)}MB", flush=True)
 
-        # 维度 2: 范围
-        print(f"[侦察] {task_id} 探测范围...", flush=True)
-        report.scope = self.agent.probe_scope(target)
+        if "scope" in selected:
+            print(f"[侦察] {task_id} 探测范围...", flush=True)
+            report.scope = self.agent.probe_scope(target)
 
-        # 维度 3: 复杂度
-        print(f"[侦察] {task_id} 探测复杂度...", flush=True)
-        report.complexity = self.agent.probe_complexity(target, report.volume)
+        if "complexity" in selected:
+            print(f"[侦察] {task_id} 探测复杂度...", flush=True)
+            report.complexity = self.agent.probe_complexity(target, report.volume)
 
-        # 维度 4: 风险
-        print(f"[侦察] {task_id} 探测风险...", flush=True)
-        report.risk = self.agent.probe_risk(target, report.volume)
+        if "risk" in selected:
+            print(f"[侦察] {task_id} 探测风险...", flush=True)
+            report.risk = self.agent.probe_risk(target, report.volume)
 
         # 生成执行建议
         report.recommendations = self.agent.generate_recommendations(report)

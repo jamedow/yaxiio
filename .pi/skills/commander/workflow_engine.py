@@ -1281,17 +1281,39 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         except Exception:
             pass
 
-        # Rule-based fallback
+        # Rule-based fallback — 增强版: 从Agent输出中提取信号
         has_result = bool(output_text and len(output_text) > 50)
+        output_len = len(output_text)
         subtask_count = len(l4.get("results", {}))
+        
+        # 信号检测
+        has_code_blocks = "```" in output_text
+        has_structured = any(marker in output_text for marker in ("##", "###", "**", "| ", "1.", "2.", "3."))
+        has_findings = any(kw in output_text.lower() for kw in ("发现", "问题", "建议", "结论", "finding", "issue", "recommend"))
+        has_report_format = output_text.startswith("##") or output_text.startswith("# ")
+        
+        # 基础分
         completeness = 8 if has_result else (5 if subtask_count > 0 else 3)
-        quality = min(9, 4 + len(output_text) // 500) if has_result else 3
+        if has_report_format:
+            completeness = min(10, completeness + 1)
+        
+        quality = min(9, 4 + output_len // 500) if has_result else 3
+        if has_findings:
+            quality = min(10, quality + 1)
+        
+        professionalism = 6 + (1 if output_len > 1000 else 0) + (1 if has_report_format else 0)
+        
+        actionability = 6 + (2 if has_code_blocks else 0) + (1 if has_findings else 0)
+        
+        accuracy = 5 + (2 if subtask_count >= 3 else 0) + (1 if has_structured else 0)
+        consistency = 7 + (1 if has_report_format else 0)
+        
         base = {
-            "accuracy": 5 + (2 if subtask_count >= 3 else 0),
-            "completeness": completeness,
-            "professionalism": 6 + (1 if len(output_text) > 1000 else 0),
-            "actionability": 6 + (2 if "```" in output_text or "1." in output_text else 0),
-            "consistency": 7,
+            "accuracy": min(10, accuracy),
+            "completeness": min(10, completeness),
+            "professionalism": min(10, professionalism),
+            "actionability": min(10, actionability),
+            "consistency": min(10, consistency),
         }
         base_overall = round(sum(base.values()) / len(base))
         result = {"overall": base_overall, "method": "rule_fallback", "dimensions": base,

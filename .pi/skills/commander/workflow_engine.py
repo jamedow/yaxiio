@@ -530,13 +530,42 @@ class WorkflowEngine:
 
         # L0: Retrieve past experiences for this intent
         past_exp = self.l0._retrieve_experiences(action_clean, available[:5])
+        experience_context = ""
         if past_exp:
             print(f"[L0] {task_id} found {len(past_exp)} past experiences for '{action_clean}'", flush=True)
+            # Format experience for LLM injection
+            exp_lines = ["## 历史经验（同类任务参考）"]
+            for i, exp in enumerate(past_exp[:3]):
+                agents_used = exp.get("agents_involved", [exp.get("agent", "?")])
+                subtask_actions = exp.get("subtask_actions", [])
+                score = exp.get("score", "?")
+                success_mark = "✅" if exp.get("success") else "❌"
+                exp_lines.append(f"### 案例{i+1} (评分:{score}/10 {success_mark})")
+                exp_lines.append(f"- Agent: {', '.join(agents_used)}")
+                if subtask_actions:
+                    steps = ' → '.join(str(sa)[:60] for sa in subtask_actions[:5])
+                    exp_lines.append(f"- 步骤: {steps}")
+            experience_context = "\n".join(exp_lines)
+        else:
+            # Chroma semantic search fallback
+            try:
+                from modules.layer1.vector_store_chroma import ChromaVectorStore
+                vs = ChromaVectorStore()
+                semantic = vs.search(f"task:{task_desc[:200]}", top_k=3)
+                if semantic:
+                    exp_lines = ["## 语义相似经验"]
+                    for i, s in enumerate(semantic):
+                        exp_lines.append(f"### 类似任务{i+1}\n{s.get('text','')[:300]}")
+                    experience_context = "\n".join(exp_lines)
+                    print(f"[L0] {task_id} Chroma 语义: {len(semantic)} 条", flush=True)
+            except Exception:
+                pass
 
         try:
             result = call_layer(2, "decompose_task",
                                task_id=task_id, task=task_desc,
-                               available_agents=available[:8])
+                               available_agents=available[:8],
+                               experience_context=experience_context[:1500])
             if result and isinstance(result, list) and len(result) > 0:
                 subtasks = []
                 for i, item in enumerate(result):
@@ -553,7 +582,7 @@ class WorkflowEngine:
                     return subtasks
         except Exception as e:
             print("[WF] %s L2 MCP failed: %s" % (task_id, str(e)[:50]), flush=True)
-        return self._llm_decompose(task_id, payload)
+        return self._llm_decompose(task_id, payload, experience_context)
 
     # ==============================================
     # L0 Memory Layer: experience retrieval + web knowledge
@@ -691,7 +720,7 @@ class WorkflowEngine:
             lines.append(f"- {status} **{st['action']}** ({st['agent']}): {output}")
         return "\n".join(lines)
 
-    def _llm_decompose(self, task_id: str, payload: dict) -> list:
+    def _llm_decompose(self, task_id: str, payload: dict, experience_context: str = "") -> list:
         """LLM decompose with data-driven batch parallelism"""
         import re
         task_desc = payload.get("task", json.dumps(payload, ensure_ascii=False)[:500])
@@ -732,12 +761,13 @@ class WorkflowEngine:
         if not llm:
             return [{"id":"s1","action":"execute","agent":"审计官","depends":[],"prompt":task_desc[:300]}]
 
-        prompt = """Decompose this task into 2-5 subtasks. Output JSON array only.
+                prompt = """Decompose this task into 2-5 subtasks. Output JSON array only.
 
 Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(translate), UI/UX设计师(design), 前端工程师(frontend), LM内容工程师(content engineering)
 
 """
-
+        if experience_context:
+            prompt += experience_context[:1200] + "\n\n"
         prompt += "Task: " + task_desc[:400]
 
         try:
@@ -894,45 +924,87 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         return {"status": "timeout", "error": f"{agent_name} 未在 {timeout}s 内响应"}
 
     def _do_L5(self, task_id: str, action: str, plan: dict, l4: dict, state: dict) -> dict:
+        """L5 scoring — UnifiedScorer primary path + legacy fallback"""
         if MCP_LAYERS_ENABLED.get("L5"):
             return {"mcp_routed": True, "layer": "L5", "phase": "not_implemented"}
 
-        """L5 scoring - LLM deep_score with proper output extraction"""
-        # Extract agent output text from various formats
-        output_text = ""
-        # Complex path: results dict with subtask outputs
-        if l4.get("results") and isinstance(l4["results"], dict):
-            parts = []
-            for sid, r in sorted(l4["results"].items()):
-                out = str(r.get("output", r.get("summary", "")))[:300]
-                if out:
-                    parts.append(out)
-            output_text = "\n---\n".join(parts)
-        # Summary text
-        if not output_text and l4.get("summary"):
-            output_text = str(l4["summary"])[:3000]
-        # Simple path: stdout or output
-        if not output_text:
-            if isinstance(l4.get("result"), dict):
-                output_text = str(l4["result"].get("output", l4["result"].get("summary", "")))
-        if not output_text:
-            output_text = str(l4.get("stdout", l4.get("output", "")))
+        # Extract output text
+        output_text = self._extract_output_text(l4)
 
-        agent_name = plan.get("agent", "unknown") if isinstance(plan, dict) and "agent" in plan else "unknown"
+        # Resolve agent name
+        if isinstance(plan, dict) and "agent" in plan:
+            agent_name = plan["agent"]
+        else:
+            agent_name = "unknown"
         if agent_name == "unknown" and isinstance(plan, dict):
             subtasks = plan.get("subtasks", [])
             agents = list(set(s.get("agent", "") for s in subtasks))
             agent_name = ", ".join(agents[:3]) if agents else "unknown"
+
+        # Load agent capability card
+        agent_card = None
+        try:
+            if self.commander and self.commander.redis:
+                primary = agent_name.split(",")[0].strip()
+                card_raw = self.commander.redis.get(f"agent:card:{primary}")
+                if card_raw:
+                    agent_card = json.loads(card_raw)
+        except Exception:
+            pass
+
+        # Determine scoring strategy
+        if isinstance(plan, dict):
+            subtask_count = len(plan.get("subtasks", []))
+        else:
+            subtask_count = 1
+        if subtask_count <= 1 and len(output_text) < 500:
+            strategy = "fast"
+        elif subtask_count >= 5:
+            strategy = "deep"
+        else:
+            strategy = "standard"
+
+        # PRIMARY PATH: UnifiedScorer
+        try:
+            from modules.layer5.unified_scorer import UnifiedScorer
+            scorer = UnifiedScorer(redis_client=self.commander.redis if self.commander else None)
+            task_info = {
+                "task_id": task_id, "action": action,
+                "description": str(state.get("summary", ""))[:500],
+                "type": action,
+            }
+            result_info = {
+                "output": output_text[:3000],
+                "subtasks": plan.get("subtasks", []) if isinstance(plan, dict) else [],
+                "status": "success" if l4.get("results") else "partial",
+            }
+            result = scorer.score(
+                task=task_info, result=result_info,
+                strategy=strategy, agent_card=agent_card
+            )
+            label = f"overall={result.get('overall','?')} verdict={result.get('verdict','?')} sources={result.get('sources_used',[])}"
+            print(f"[WF] {task_id} L5 UnifiedScorer: {label}", flush=True)
+            self.score_history.append({
+                "task_id": task_id,
+                "score": result["overall"],
+                "ts": time.time()
+            })
+            return result
+        except Exception as e:
+            print(f"[WF] {task_id} UnifiedScorer failed ({e}), fallback to legacy L5", flush=True)
+
+        # FALLBACK: legacy scoring
+        return self._legacy_l5_score(task_id, action, plan, l4, state, output_text, agent_name)
+    def _legacy_l5_score(self, task_id, action, plan, l4, state, output_text, agent_name):
+        """Legacy L5 scoring — fallback when UnifiedScorer is unavailable"""
         context = json.dumps({"action": action, "intent": state.get("primary_intent", ""),
                               "total_rounds": state.get("total_rounds", 1)}, ensure_ascii=False)
-
-        # 1. Try LLM deep_score
+        # Try LLM deep_score via MCP
         try:
             l5 = call_layer(5, "deep_score",
                            task_id=task_id, action=action,
                            agent_name=agent_name,
-                           output=output_text[:3000],
-                           context=context)
+                           output=output_text[:3000], context=context)
             if l5.get("method") == "llm":
                 result = {
                     "overall": l5.get("overall", 5),
@@ -946,52 +1018,15 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
                     "needs_evolution": l5.get("overall", 5) < 5,
                 }
                 self.score_history.append({"task_id": task_id, "score": result["overall"], "ts": time.time()})
-
-                if result["overall"] < 7:
-                    try:
-                        # Phase 5: PromptOptimizer — 低分时生成优化建议
-                        try:
-                            from modules.layer5 import PromptOptimizer
-                            po = PromptOptimizer()
-                            po.record(str(output_text)[:200], False)
-                        except Exception:
-                            pass
-                        # Phase 3: DSPy 自动 Prompt 优化
-                        try:
-                            from dspy_optimizer import get_dspy_optimizer
-                            dspy_opt = get_dspy_optimizer()
-                            if dspy_opt.is_available():
-                                optimized = dspy_opt.optimize_prompt(
-                                    base_prompt=str(output_text)[:500],
-                                    examples=[{"input": action, "output": str(output_text)[:300]}],
-                                    task_description=f"Improve {action} task output quality"
-                                )
-                                if optimized:
-                                    result["dspy_optimized"] = True
-                        except Exception:
-                            pass
-                        issues_str = "; ".join(result.get("key_issues", [])[:3])
-                        call_layer(5, "meta_reflect",
-                                  task_id=task_id, action=action,
-                                  agent_name=agent_name, score=result["overall"],
-                                  issues=issues_str, timeline="")
-                    except:
-                        pass
                 return result
         except Exception:
             pass
 
-        # 2. Rule-based fallback (improved)
-        has_error = bool(l4.get("error"))
+        # Rule-based fallback
         has_result = bool(output_text and len(output_text) > 50)
-        dispatched = state.get("l3_result", {}).get("dispatched", False)
         subtask_count = len(l4.get("results", {}))
-        
-        # Better heuristic: subtask results → higher completeness
         completeness = 8 if has_result else (5 if subtask_count > 0 else 3)
-        # Output quality: longer, more structured output → better
         quality = min(9, 4 + len(output_text) // 500) if has_result else 3
-        
         base = {
             "accuracy": 5 + (2 if subtask_count >= 3 else 0),
             "completeness": completeness,
@@ -1001,31 +1036,29 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         }
         base_overall = round(sum(base.values()) / len(base))
         result = {"overall": base_overall, "method": "rule_fallback", "dimensions": base,
-                  "needs_review": base_overall < 7, "needs_evolution": base_overall < 5}
-        # Phase 5: AutoScorer 融合 — 代码/内容质量双维度评分
-        try:
-            from modules.layer4 import AutoScorer
-            scorer = AutoScorer()
-            code_score = scorer.score({"task_id": task_id, "type": action}, l4)
-            if code_score.get("score", 0) > 0:
-                result["code_quality_score"] = round(code_score["score"], 2)
-                result["overall"] = round((result["overall"] + code_score["score"]) / 2, 2)
-                result["method"] = "rule_fallback+autoscorer"
-        except Exception:
-            pass  # AutoScorer 不可用时静默降级
-        # Phase 3: Hybrid scoring — blend with human review if available
-        hybrid = self.hybrid_scorer.calculate(task_id, base_overall)
-        if hybrid["source"] == "hybrid":
-            result["hybrid_score"] = hybrid["score"]
-            result["human_score"] = hybrid.get("human")
-            result["human_weight"] = hybrid.get("human_weight")
-            result["overall"] = hybrid["score"]  # Override with hybrid
-            base_overall = hybrid["score"]
-        if hybrid.get("anomaly"):
-            print(f"[WF] {task_id} anomaly: AI={hybrid['ai']} vs Human={hybrid['human']}", flush=True)
-        
+                  "needs_review": base_overall < 7, "needs_evolution": base_overall < 5,
+                  "verdict": "pass" if base_overall >= 7 else ("retry" if base_overall >= 4 else "reject")}
         self.score_history.append({"task_id": task_id, "score": base_overall, "ts": time.time()})
         return result
+
+    def _extract_output_text(self, l4: dict) -> str:
+        """Extract output text from various L4 result formats"""
+        output_text = ""
+        if l4.get("results") and isinstance(l4["results"], dict):
+            parts = []
+            for sid, r in sorted(l4["results"].items()):
+                out = str(r.get("output", r.get("summary", "")))[:300]
+                if out:
+                    parts.append(out)
+            output_text = "\n---\n".join(parts)
+        if not output_text and l4.get("summary"):
+            output_text = str(l4["summary"])[:3000]
+        if not output_text:
+            if isinstance(l4.get("result"), dict):
+                output_text = str(l4["result"].get("output", l4["result"].get("summary", "")))
+        if not output_text:
+            output_text = str(l4.get("stdout", l4.get("output", "")))
+        return output_text
 
     def _build_plan(self, primary_intent: str, action: str,
                     payload: dict, arsenal_tools: list) -> dict:
@@ -1085,8 +1118,33 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
     # 目标自检: 差距分析 + 子任务生成
     # ═══════════════════════════════════════════════
 
-    def _analyze_gap(self, *args, **kwargs):
-        return self.gap.analyze_gap(*args, **kwargs)
+    def _analyze_gap(self, task_id: str, payload: dict, results: dict, l5_scores: dict) -> dict:
+        """Gap analysis using UniversalGapAnalyzer — zero industry hardcoding"""
+        try:
+            from modules.layer5.gap_analyzer_v2 import UniversalGapAnalyzer
+            analyzer = UniversalGapAnalyzer()
+
+            # Load agent card
+            agent_card = None
+            try:
+                if self.commander and self.commander.redis:
+                    primary_agent = l5_scores.get("primary_agent", "\u5ba1\u8ba1\u5b98")
+                    card_raw = self.commander.redis.get(f"agent:card:{primary_agent}")
+                    if card_raw:
+                        agent_card = json.loads(card_raw)
+            except Exception:
+                pass
+
+            return analyzer.analyze(
+                task={"action": payload.get("action", ""),
+                      "description": str(payload.get("task", ""))[:300]},
+                results=results,
+                l5_scores=l5_scores,
+                agent_card=agent_card,
+            )
+        except Exception as e:
+            print(f"[WF] UniversalGapAnalyzer failed ({e}), fallback to legacy", flush=True)
+            return self.gap.analyze(task_id, payload, results, l5_scores)
 
     def _detect_content_issues(self, results: dict) -> dict:
         """Parse subtask outputs for concrete content problems"""

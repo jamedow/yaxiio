@@ -206,7 +206,7 @@ class Commander:
             self._publish_result(tid, data, {
                 "error": f"宪法拒绝: {reason}",
                 "verdict": "rejected",
-                "constitution_advice": "该操作被宪法拒绝。请通过 Dashboard 或 API 提交任务，系统将自动走 L1→L5 流水线。如有疑问，查看 /opt/yaxiio/docs/CONSTITUTION.md"
+                "constitution_advice": "请通过五层 MCP 流水线提交此任务"
             }, "rejected")
             return
 
@@ -260,8 +260,8 @@ class Commander:
         Commander 不等待——回到主循环继续处理其他任务，
         Neuron 完成后通过 Pub/Sub 回传结果触发后续流程。
         """
-        import uuid
-        trace_id = data.get("trace_id") or str(uuid.uuid4())[:12]
+        import uuid as _uuid
+        trace_id = data.get("trace_id") or str(_uuid.uuid4())[:12]
         def _run():
             try:
                 self.log.info("_run_delegated", "路由到流水线", trace_id=trace_id, action=action)
@@ -553,7 +553,6 @@ class Commander:
 
     def _recover_inflight(self):
         """断点恢复: 重启后扫描未完成任务，重新调度"""
-        from modules.shared.foolproof import safe_default, validate_in_range
         from task_state_machine import TaskStateMachine
         sm = TaskStateMachine()
         inflight = sm.list_inflight()
@@ -756,10 +755,19 @@ class Commander:
     # ═══════════════════════════════════════════════
     # LLM 客户端
     # ═══════════════════════════════════════════════
-    def _get_llm(self, task_type: str = "default", task_desc: str = ""):
-        """获取 LLM 客户端 — 委托给 commander_llm"""
-        from commander_llm import get_llm_client
-        return get_llm_client(self.redis, self.workflow, task_type, task_desc)
+    def _get_llm(self, task_type: str = "default"):
+        """获取 LLM 客户端, 按任务类型选择模型"""
+        try:
+            sys.path.insert(0, "/app/.pi/skills/commander")
+            from agent_lifecycle_v2 import LLMAdapter
+            from model_router_v2 import ModelConfig
+            key = self.redis.get("yaxiio:config:llm_api_key") or os.environ.get("DEEPSEEK_API_KEY","")
+            mc = ModelConfig(self.redis)
+            cfg = mc.get_commander_config(task_type)
+            return LLMAdapter(api_key=key, base_url="https://api.deepseek.com/v1",
+                            model=cfg["model"], thinking=cfg.get("thinking", "medium"))
+        except:
+            return None
 
     # ═══════════════════════════════════════════════
     # 主循环
@@ -846,16 +854,13 @@ class Commander:
                 while time.time() < deadline:
                     msg = pubsub.get_message(timeout=2.0)
                     if msg and msg["type"] == "message":
-                        self.redis.client.setex("yaxiio:debug:last_msg", 60, str(time.time()))
                         try:
                             raw = msg["data"]
                             if isinstance(raw, bytes): raw = raw.decode("utf-8")
                             data = json.loads(raw)
                             msg_type = data.get("type", "")
                             if msg_type == "task":
-                                self.redis.client.setex("yaxiio:debug:last_task", 60, json.dumps({"tid": data.get("taskId","?"), "action": data.get("payload",{}).get("action","?"), "ts": time.time()}))
                                 self.handle_task(data)
-                                self.redis.client.setex("yaxiio:debug:task_done", 60, json.dumps({"tid": data.get("taskId","?"), "ts": time.time()}))
                             elif msg_type == "response":
                                 # Neuron 异步回调 → 继续流水线
                                 tid = data.get("taskId", "")
@@ -865,7 +870,6 @@ class Commander:
                         except Exception as e:
                             print(f"[雅溪] Task error: {e}", flush=True)
 
-                self.redis.client.setex("yaxiio:debug:cycle", 120, json.dumps({"cycle": cycle, "ts": time.time(), "tasks": self.task_count}))
                 cycle += 1
                 if cycle % 10 == 0:
                     stats = self.pool.stats()

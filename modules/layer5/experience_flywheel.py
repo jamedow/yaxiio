@@ -245,7 +245,7 @@ class ExperienceFlywheel:
 
     def _promote_template(self, agent_name: str, task_id: str,
                           l5_signals: dict):
-        """High-score template promotion + regret mechanism: old version kept 7 days"""
+        """高分模板提升：更新能力卡片模板版本"""
         card_key = f"agent:card:{agent_name}"
         try:
             card_raw = self.redis.get(card_key)
@@ -253,47 +253,14 @@ class ExperienceFlywheel:
                 return
             card = json.loads(card_raw)
             version = card.get("_template_version", 1) + 1
-            
-            # Fool-proof: save old version to history (7-day TTL)
-            backup_key = f"agent:card:{agent_name}:v{version-1}"
-            self.redis.setex(backup_key, 86400 * 7, card_raw)
-            
             card["_template_version"] = version
             card["_last_promoted_score"] = l5_signals.get("overall", 0)
             card["_last_promoted_task"] = task_id
             card["_promoted_at"] = time.time()
             self.redis.set(card_key, json.dumps(card, ensure_ascii=False))
-            print("[Flywheel] {} template v{} (score={}) backup v{} kept 7d".format(
-                agent_name, version, l5_signals.get("overall", 0), version-1), flush=True)
+            print(f"[Flywheel] 📈 {agent_name} 模板 v{version} (score={l5_signals.get('overall',0)})", flush=True)
         except Exception as e:
-            print("[Flywheel] template promote failed ({}): {}".format(agent_name, e), flush=True)
-
-    def rollback_template(self, agent_name: str, target_version: int = None) -> bool:
-        """Regret mechanism: rollback capability card to a previous version"""
-        card_key = f"agent:card:{agent_name}"
-        try:
-            current_raw = self.redis.get(card_key)
-            if not current_raw:
-                return False
-            current = json.loads(current_raw)
-            current_ver = current.get("_template_version", 1)
-            
-            if target_version is None:
-                target_version = current_ver - 1
-            
-            backup_key = f"agent:card:{agent_name}:v{target_version}"
-            backup_raw = self.redis.get(backup_key)
-            if not backup_raw:
-                print("[Flywheel] rollback failed: v{} backup not found or expired".format(target_version), flush=True)
-                return False
-            
-            self.redis.setex(f"agent:card:{agent_name}:v{current_ver}", 86400 * 7, current_raw)
-            self.redis.set(card_key, backup_raw)
-            print("[Flywheel] {} v{} -> v{} rolled back".format(agent_name, current_ver, target_version), flush=True)
-            return True
-        except Exception as e:
-            print("[Flywheel] rollback failed: {}".format(e), flush=True)
-            return False
+            print(f"[Flywheel] 模板提升失败 ({agent_name}): {e}", flush=True)
 
     def _create_ab_variant(self, agent_name: str, task_id: str):
         """为中分配置创建 A/B 测试变体"""

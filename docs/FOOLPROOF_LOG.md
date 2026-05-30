@@ -52,8 +52,8 @@
 
 | 优先级 | 模块 | 文件名 | 预估改动 |
 |--------|------|--------|---------|
-| P0 | workflow_engine |  | ✅ 已完成 | `workflow_engine.py` | 参数校验、降级提示 |
-| P0 | Commander |  | ✅ 已完成 | `yaxiio.py` | 友好错误、安全默认 |
+| P0 | workflow_engine | `workflow_engine.py` | 参数校验、降级提示 |
+| P0 | Commander | `yaxiio.py` | 友好错误、安全默认 |
 | P1 | Gateway | `gateway.py` | 输入校验、速率限制 |
 | P1 | UnifiedScorer | `unified_scorer.py` | quality 预设集成 |
 | P1 | AsyncOrchestrator | `async_orchestrator.py` | 超限保护、优雅降级 |

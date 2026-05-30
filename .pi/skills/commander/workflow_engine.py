@@ -1,5 +1,3 @@
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 """Commander 流程引擎 v2.1 — 多子任务编排
 ===========================================
   L1 感知: MCP关键词 + LLM深度理解 + 动作优先覆盖
@@ -13,7 +11,6 @@ from mcp_bridge import call_layer
 from mcp.protocol import MCPClient
 
 # 状态机
-from modules.shared.foolproof import safe_default, validate_in_range
 from task_state_machine import TaskStateMachine
 from trace_logger import TraceLogger
 from modules.shared.config import MCP_LAYERS_ENABLED
@@ -26,7 +23,7 @@ MCP_CLIENTS = {i: MCPClient(f"http://{MCP_HOST}:{3400+i}") for i in range(1, 6)}
 SANDBOX_BASE = "/tmp/yaxiio-sandbox"
 SANDBOX_MAX_SIZE_MB = 500
 SANDBOX_TIMEOUT = 300
-POLL_TIMEOUT = safe_default('task_timeout')  # 防呆: 使用集中管理的默认值
+POLL_TIMEOUT = 120
 POLL_INTERVAL = 2
 
 # ── 意图映射表 ──
@@ -71,7 +68,7 @@ class WorkflowEngine:
 
     def __init__(self, commander=None):
         self.commander = commander
-        self.sm = TaskStateMachine(redis_client=commander.redis if commander else None)
+        self.sm = TaskStateMachine()  # 状态机
         self.log = TraceLogger("WorkflowEngine")
         self.active: dict = {}
         self._lock = threading.Lock()
@@ -106,7 +103,6 @@ class WorkflowEngine:
 
         # ── L3: Async Orchestrator + Redis Data Bus ──
         from modules.layer3.async_orchestrator import AsyncOrchestrator
-        from workflow_l1 import L1Handler
         from modules.layer3.redis_data_bus import RedisDataBus
         self.async_orch = AsyncOrchestrator(
             commander=self.commander,
@@ -114,7 +110,6 @@ class WorkflowEngine:
             total_timeout=float(os.environ.get("YAXIIO_TASK_TIMEOUT", "600")),
             subtask_timeout=float(os.environ.get("YAXIIO_SUBTASK_TIMEOUT", "120")),
         )
-        self.l1_handler = L1Handler()
         self.data_bus = RedisDataBus(
             redis_client=self.commander.redis if self.commander else None
         )
@@ -317,11 +312,6 @@ class WorkflowEngine:
             # L2: 任务拆解 (优先 MCP, 降级 LLM)
             print(f"[WF] {task_id} L2 planning via MCP...", flush=True)
             subtasks = self._decompose_via_l2(task_id, payload)
-            # 防呆: 限制子任务数量
-            max_subtasks = safe_default('subtask_max_count')
-            if len(subtasks) > max_subtasks:
-                print(f"[WF] {task_id} 子任务过多 ({len(subtasks)}), 截断到 {max_subtasks}", flush=True)
-                subtasks = subtasks[:max_subtasks]
             state["subtasks"] = subtasks
             state["template_used"] = "l2_mcp" if len(subtasks) > 1 else "llm_fallback"
             self.sm.complete_layer(task_id, "L2_planning",
@@ -766,12 +756,99 @@ class WorkflowEngine:
         return {"assignments": assignments, "total_assigned": len(assignments), "method": "fallback"}
 
     def _check_and_heal(self, task_id: str, subtasks: list, results: dict):
-        """故障检测 — 委托给 workflow_utils_extracted"""
-        check_and_heal(task_id, subtasks, results, self.commander)
+        """故障检测: 同一 Agent 连续失败 > 2 次 → 派系统医生"""
+        agent_failures = {}
+        for st in subtasks:
+            sid = st["id"]
+            r = results.get(sid, {})
+            if not r.get("ok"):
+                agent = st.get("agent", "unknown")
+                agent_failures[agent] = agent_failures.get(agent, 0) + 1
+
+        for agent, count in agent_failures.items():
+            if count >= 2 and self.commander:
+                failure_type = "low_quality"
+                # 检查是否是超时
+                for st in subtasks:
+                    if st.get("agent") == agent and results.get(st["id"], {}).get("error") == "timeout":
+                        failure_type = "slow_response"
+                        break
+
+                print(f"[WF] 🏥 {agent} 连续失败 {count} 次, 派系统医生 (type={failure_type})", flush=True)
+                self.commander.handle_agent_failure(
+                    agent, failure_type, task_id,
+                    details=f"连续{count}个子任务失败"
+                )
 
     def _cleanup_task(self, task_id: str, subtasks: list, final_score: int):
-        """Post-task cleanup — delegate to workflow_utils_extracted"""
-        cleanup_task(self, task_id, subtasks, final_score)
+        """Post-task cleanup: ExperienceFlywheel + destroy memory"""
+        agents_used = set(s["agent"] for s in subtasks)
+        action = self._current_intent or "general"
+
+        # ── Primary: ExperienceFlywheel ──
+        try:
+            flywheel = self.flywheel
+            flywheel.save_experience(
+                task_id=task_id,
+                task_description=str(self._current_intent or ""),
+                subtasks=subtasks,
+                final_score=float(final_score),
+                l5_signals={},
+                agents_used=agents_used,
+                intent=action,
+            )
+            print(f"[WF] {task_id} flywheel: {len(agents_used)} agents, score={final_score}", flush=True)
+        except Exception as _e:
+            print(f"[WF] {task_id} flywheel failed, fallback to l0", flush=True)
+            # Fallback to legacy L0 storage
+            try:
+                import redis as _r
+                _rd = _r.Redis(protocol=2, host="127.0.0.1", port=6379,
+                             password=os.environ.get("REDIS_PASSWORD", ""),
+                             decode_responses=True)
+                self.l0._save_experience(task_id, subtasks, final_score, agents_used, _rd)
+            except Exception:
+                pass
+
+        # ── Cleanup: destroy task memory ──
+        try:
+            import redis as _r
+            _rd = _r.Redis(protocol=2, host="127.0.0.1", port=6379,
+                         password=os.environ.get("REDIS_PASSWORD", ""),
+                         decode_responses=True)
+            for agent in agents_used:
+                _rd.delete(f"agent:{agent}:{task_id}:memory")
+            # Cleanup workflow snapshot
+            self.snapshot.cleanup(task_id)
+        except Exception:
+            pass
+
+    def _save_experience(self, task_id, subtasks, final_score, agents_used, r):
+        """L0: Save structured experience for future retrieval"""
+        intent = self._current_intent or "general"
+        for agent in agents_used:
+            if agent.startswith("_"): continue
+            exp = {
+                "task_id": task_id,
+                "agent": agent,
+                "intent": intent,
+                "score": final_score,
+                "subtask_count": len(subtasks),
+                "ts": time.time(),
+                "success": final_score >= 7,
+                "agents_involved": list(agents_used),
+                "subtask_actions": [s.get("action", "")[:60] for s in subtasks[:5]],
+            }
+            key = f"exp:{intent}:{agent}"
+            r.lpush(key, json.dumps(exp, ensure_ascii=False))
+            r.ltrim(key, 0, 49)  # Keep max 50 experiences per intent+agent
+        # Also save by intent only (agent-agnostic)
+        all_actions = [s.get("action","")[:60] for s in subtasks[:5]]
+        intent_exp = {"task_id": task_id, "score": final_score, "agents": list(agents_used),
+                      "actions": all_actions, "ts": time.time(), "success": final_score >= 7}
+        r.lpush(f"exp:{intent}:all", json.dumps(intent_exp, ensure_ascii=False))
+        r.ltrim(f"exp:{intent}:all", 0, 49)
+        print(f"[L0] saved experience: {intent} score={final_score} agents={list(agents_used)}", flush=True)
 
     _current_intent = "general"
 
@@ -785,37 +862,6 @@ class WorkflowEngine:
             output = str(r.get("output", r.get("error", "")))[:200]
             lines.append(f"- {status} **{st['action']}** ({st['agent']}): {output}")
         return "\n".join(lines)
-
-
-    def _get_llm(self, task_type: str = "default", task_desc: str = ""):
-        """LLM client with IntelligentModelRouter + auto-fallback"""
-        if self.commander:
-            try:
-                if hasattr(self, "model_router_v2") and self.model_router_v2:
-                    task_info = {"action": task_type, "description": task_desc or task_type}
-                    cfg = self.model_router_v2.select(task_info)
-                    model = cfg.get("model", task_type)
-                    thinking = cfg.get("thinking", "medium")
-                else:
-                    model = task_type; thinking = "medium"
-                return self.commander._get_llm(model, thinking)
-            except Exception:
-                try:
-                    return self.commander._get_llm()
-                except:
-                    pass
-        return None
-
-    def _call_llm(self, prompt: str, timeout: float = 30.0) -> str:
-        llm = self._get_llm()
-        if not llm: raise RuntimeError("LLM unavailable")
-        if self.commander:
-            from yaxiio import async_loop
-            return async_loop.run_coro(llm.chat(prompt), timeout=timeout)
-        import asyncio
-        loop = asyncio.new_event_loop()
-        try: return loop.run_until_complete(llm.chat(prompt))
-        finally: loop.close()
 
     def _llm_decompose(self, task_id: str, payload: dict, experience_context: str = "", primary_agent: str = None) -> list:
         """LLM decompose with data-driven batch parallelism"""
@@ -870,31 +916,17 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         prompt += "Task: " + task_desc[:400]
 
         try:
-            # Compatible with both OpenAI client and LLMAdapter
-            if hasattr(llm, "chat") and callable(llm.chat):
-                import asyncio
-                loop = asyncio.new_event_loop()
-                content_text = loop.run_until_complete(llm.chat(prompt))
-                loop.close()
-            elif hasattr(llm, "chat") and hasattr(llm.chat, "completions"):
-                resp = llm.chat.completions.create(
-                    model="deepseek-chat",
-                    messages=[{"role":"user","content":prompt}],
-                    temperature=0.3, max_tokens=500,
-                )
-                content_text = resp.choices[0].message.content
-            else:
-                raise RuntimeError("LLM client has no chat method")
+            resp = llm.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role":"user","content":prompt}],
+                temperature=0.3, max_tokens=500,
+            )
+            content_text = resp.choices[0].message.content
             if "```" in content_text:
                 content_text = content_text.split("```")[1]
                 if content_text.startswith("json"): content_text = content_text[4:]
             data = json.loads(content_text.strip())
-            if isinstance(data, list):
-                result = data
-            elif isinstance(data, dict):
-                result = data.get("subtasks", [])
-            else:
-                result = []
+            result = data.get("subtasks", data if isinstance(data, list) else [])
             # Normalize
             normalized = []
             for i, item in enumerate(result):
@@ -914,8 +946,29 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         return [{"id":"s1","action":"execute","agent":"审计官","depends":[],"prompt":task_desc[:300]}]
 
     def _do_L1(self, task_id: str, payload: dict) -> dict:
-        """L1 感知 — 委托给 L1Handler"""
-        return self.l1_handler.analyze(task_id, payload)
+        """L1 感知"""
+        print(f"[WF] {task_id} L1 感知...", flush=True)
+        l1_text = {k: v for k, v in payload.items() if not k.startswith("_")}
+        l1 = call_layer(1, "analyze_intent", text=json.dumps(l1_text, ensure_ascii=False))
+        state = {"l1_result": l1}
+
+        primary = l1.get("primary_intent", "general")
+        confidence = l1.get("confidence", 0.5)
+        action = payload.get("action", "")
+        action_clean = action.replace("site_", "").replace("translate_", "")
+
+        if action_clean in INTENT_TOOL_MAP:
+            primary = action_clean
+            confidence = 0.99
+            state["l1_action_override"] = True
+        elif action in INTENT_TOOL_MAP:
+            primary = action
+            confidence = 0.99
+            state["l1_action_override"] = True
+
+        state["primary_intent"] = primary
+        state["confidence"] = confidence
+        return state
 
     def _do_L2(self, task_id: str, payload: dict, state: dict, arsenal_tools: list) -> dict:
         """L2 规划"""
@@ -940,19 +993,32 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
             spawned = self.commander.spawn_neuron(agent_name, agent_skill, thinking=thinking_override, task_id=task_id)  # Phase 4: 简单任务无 sid, 直接用 task_id
             state["_last_thinking"] = thinking_override or "medium"
             l3["neuron_spawned"] = spawned
-            time.sleep(1)
+            # Wait for neuron to fully initialize and subscribe to Redis channels
+            time.sleep(5)
 
-            agent_channel = f"lightingmetal:agent:{agent_name}"
+            # Stream 发布任务 (替代 Pub/Sub，消息不丢失)
             try:
+                from stream_bridge import StreamBridge
+                _bridge = StreamBridge(
+                    redis_host="127.0.0.1", redis_port=6379,
+                    redis_password=os.environ.get("REDIS_PASSWORD", ""))
                 msg = {"type": "task", "taskId": task_id, "from": "workflow",
                        "to": agent_name, "replyTo": "lightingmetal:agent:commander",
                        "payload": {k: v for k, v in payload.items() if not k.startswith("_")}}
-                count = self.commander.redis.client.publish(
-                    agent_channel, json.dumps(msg, ensure_ascii=False, default=str))
-                l3["dispatched"] = count > 0
-                l3["subscribers"] = count
+                _bridge.publish_task("L4", msg, task_id)
+                l3["dispatched"] = True
+                l3["method"] = "stream"
+                print(f"[WF] {task_id} Stream 发布 → L4 (agent={agent_name})", flush=True)
             except Exception as e:
-                l3["error"] = str(e)[:100]
+                l3["error"] = f"Stream发布失败:{str(e)[:80]}"
+                # 回退 Pub/Sub
+                agent_channel = f"lightingmetal:agent:{agent_name}"
+                try:
+                    count = self.commander.redis.client.publish(
+                        agent_channel, json.dumps(msg, ensure_ascii=False, default=str))
+                    l3["dispatched"] = count > 0
+                except Exception as e2:
+                    l3["error"] = str(e2)[:100]
         state["l3_result"] = l3
 
         tool_name = plan.get("tool")
@@ -970,10 +1036,98 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         return l4
 
     def _wait_for_neuron_response(self, task_id: str, agent_name: str, timeout: int = 120) -> dict:
-        """等待 Neuron 响应 — 委托给 L4 模块"""
-        from workflow_l4 import wait_for_neuron_response
-        redis_client = self.commander.redis.client if self.commander and self.commander.redis else None
-        return wait_for_neuron_response(redis_client, task_id, agent_name, timeout)
+        """Stream + Pub/Sub 双重等待 neuron 响应。
+
+        Stream 优先（消息持久化不丢失），Pub/Sub 作为快速通道。
+        """
+        if not self.commander or not self.commander.redis:
+            return {"status": "error", "error": "无法连接 Redis 等待响应"}
+
+        print(f"[WF] 等待 {agent_name} 响应 (task={task_id}, timeout={timeout}s)...", flush=True)
+        start = time.time()
+
+        # Stream 响应通道
+        try:
+            from stream_bridge import StreamBridge
+            _bridge = StreamBridge(
+                redis_host="127.0.0.1", redis_port=6379,
+                redis_password=os.environ.get("REDIS_PASSWORD", ""))
+            _response_stream = f"yaxiio:stream:L4_response"
+            _response_group = f"commander-response"
+            _bridge.ensure_group(_response_stream, _response_group)
+        except Exception:
+            _bridge = None
+
+        # Pub/Sub 快速通道（回退）
+        try:
+            pubsub = self.commander.redis.client.pubsub()
+            pubsub.subscribe("lightingmetal:agent:commander")
+        except Exception:
+            pubsub = None
+
+        try:
+            while time.time() - start < timeout:
+                # 1. 先检查 Stream
+                if _bridge:
+                    try:
+                        results = _bridge.r.xreadgroup(
+                            groupname=_response_group,
+                            consumername=f"commander-{task_id}",
+                            streams={_response_stream: ">"},
+                            block=1000, count=10)
+                        if results:
+                            for stream_name, messages in results:
+                                for msg_id, fields in messages:
+                                    data = json.loads(fields.get("payload", "{}"))
+                                    _bridge.r.xack(_response_stream, _response_group, msg_id)
+                                    if data.get("taskId") == task_id:
+                                        elapsed = time.time() - start
+                                        print(f"[WF] {agent_name} Stream响应 (耗时 {elapsed:.1f}s)", flush=True)
+                                        payload = data.get("payload", data)
+                                        return {
+                                            "agent_id": agent_name,
+                                            "status": payload.get("status", "success"),
+                                            "stdout": str(payload.get("thought", payload.get("result", "")))[:5000],
+                                            "stderr": "",
+                                            "exit_code": 0,
+                                            "elapsed_ms": int(elapsed * 1000),
+                                        }
+                    except Exception:
+                        pass
+
+                # 2. Pub/Sub 快速通道
+                if pubsub:
+                    msg = pubsub.get_message(timeout=0.1)
+                    if msg and msg["type"] == "message":
+                        try:
+                            data = json.loads(msg["data"])
+                        except json.JSONDecodeError:
+                            continue
+                        if data.get("taskId") == task_id and data.get("type") == "response":
+                            payload = data.get("payload", {})
+                            elapsed = time.time() - start
+                            print(f"[WF] {agent_name} PubSub响应 (耗时 {elapsed:.1f}s)", flush=True)
+                            return {
+                                "agent_id": agent_name,
+                                "status": payload.get("status", "unknown"),
+                                "stdout": str(payload.get("thought", payload.get("result", "")))[:5000],
+                                "stderr": "",
+                                "exit_code": 0,
+                                "elapsed_ms": int(elapsed * 1000),
+                            }
+
+                time.sleep(0.5)
+
+        except Exception as e:
+            return {"status": "error", "error": f"等待 neuron 响应异常: {str(e)[:200]}"}
+        finally:
+            if pubsub:
+                try:
+                    pubsub.close()
+                except Exception:
+                    pass
+
+        return {"status": "timeout", "error": f"{agent_name} 未在 {timeout}s 内响应"}
 
     def _do_L5(self, task_id: str, action: str, plan: dict, l4: dict, state: dict) -> dict:
         """L5 scoring — UnifiedScorer primary path + legacy fallback"""
@@ -1048,7 +1202,50 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         # FALLBACK: legacy scoring
         return self._legacy_l5_score(task_id, action, plan, l4, state, output_text, agent_name)
     def _legacy_l5_score(self, task_id, action, plan, l4, state, output_text, agent_name):
-        return legacy_l5_score(self, task_id, action, plan, l4, state, output_text, agent_name)
+        """Legacy L5 scoring — fallback when UnifiedScorer is unavailable"""
+        context = json.dumps({"action": action, "intent": state.get("primary_intent", ""),
+                              "total_rounds": state.get("total_rounds", 1)}, ensure_ascii=False)
+        # Try LLM deep_score via MCP
+        try:
+            l5 = call_layer(5, "deep_score",
+                           task_id=task_id, action=action,
+                           agent_name=agent_name,
+                           output=output_text[:3000], context=context)
+            if l5.get("method") == "llm":
+                result = {
+                    "overall": l5.get("overall", 5),
+                    "method": "llm_deep_score",
+                    "dimensions": {k: l5.get(k, 0) for k in
+                                   ["accuracy","completeness","professionalism","actionability","consistency"]},
+                    "key_issues": l5.get("key_issues", []),
+                    "suggestions": l5.get("suggestions", []),
+                    "verdict": l5.get("verdict", "pass"),
+                    "needs_review": l5.get("verdict") in ("retry", "reject"),
+                    "needs_evolution": l5.get("overall", 5) < 5,
+                }
+                self.score_history.append({"task_id": task_id, "score": result["overall"], "ts": time.time()})
+                return result
+        except Exception:
+            pass
+
+        # Rule-based fallback
+        has_result = bool(output_text and len(output_text) > 50)
+        subtask_count = len(l4.get("results", {}))
+        completeness = 8 if has_result else (5 if subtask_count > 0 else 3)
+        quality = min(9, 4 + len(output_text) // 500) if has_result else 3
+        base = {
+            "accuracy": 5 + (2 if subtask_count >= 3 else 0),
+            "completeness": completeness,
+            "professionalism": 6 + (1 if len(output_text) > 1000 else 0),
+            "actionability": 6 + (2 if "```" in output_text or "1." in output_text else 0),
+            "consistency": 7,
+        }
+        base_overall = round(sum(base.values()) / len(base))
+        result = {"overall": base_overall, "method": "rule_fallback", "dimensions": base,
+                  "needs_review": base_overall < 7, "needs_evolution": base_overall < 5,
+                  "verdict": "pass" if base_overall >= 7 else ("retry" if base_overall >= 4 else "reject")}
+        self.score_history.append({"task_id": task_id, "score": base_overall, "ts": time.time()})
+        return result
 
     def _extract_output_text(self, l4: dict) -> str:
         """Extract output text from various L4 result formats"""
@@ -1071,7 +1268,6 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
 
     def _build_plan(self, primary_intent: str, action: str,
                     payload: dict, arsenal_tools: list) -> dict:
-        """构建计划 — 委托给 workflow_utils_extracted"""
         if primary_intent in INTENT_TOOL_MAP:
             plan = dict(INTENT_TOOL_MAP[primary_intent])
             plan["match_type"] = "exact"
@@ -1083,6 +1279,142 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
                 plan["match_type"] = "fuzzy"
                 plan["intent"] = primary_intent
                 return plan
-        return {"tool": None, "agent": "审计官", "desc": f"通用:{action}", "match_type": "fallback", "intent": primary_intent}
+        if action in (arsenal_tools or []):
+            return {"tool": action, "agent": "审计官", "desc": f"tool:{action}",
+                    "match_type": "direct", "intent": primary_intent}
+        return {"tool": None, "agent": "审计官", "desc": f"通用:{action}",
+                "match_type": "fallback", "intent": primary_intent, "command": f"echo 'task'"}
 
+    def _get_llm(self, task_type: str = "default", task_desc: str = ""):
+        """LLM client with IntelligentModelRouter + auto-fallback"""
+        if self.commander:
+            try:
+                # Use IntelligentModelRouter (cost x latency x capability)
+                if hasattr(self, "model_router_v2") and self.model_router_v2:
+                    task_info = {"action": task_type, "description": task_desc or task_type}
+                    cfg = self.model_router_v2.select(task_info)
+                    model = cfg.get("model", task_type)
+                    thinking = cfg.get("thinking", "medium")
+                    print("[WF] model router: {} (thinking={}, score={})".format(
+                        model, thinking, cfg.get("score", 0)), flush=True)
+                else:
+                    model = task_type
+                    thinking = "medium"
+                return self.commander._get_llm(model, thinking)
+            except Exception as _e:
+                # Auto-fallback to next provider
+                try:
+                    if hasattr(self, "model_router_v2") and self.model_router_v2:
+                        fb = self.model_router_v2.fallback(model if "model" in dir() else task_type)
+                        if fb:
+                            print("[WF] model fallback to: {}".format(fb.get("model","?")), flush=True)
+                            return self.commander._get_llm(fb["model"], "off")
+                except Exception:
+                    pass
+                try:
+                    return self.commander._get_llm()
+                except Exception:
+                    pass
+        return None
+
+    def _call_llm(self, prompt: str, timeout: float = 30.0) -> str:
+        llm = self._get_llm()
+        if not llm: raise RuntimeError("LLM unavailable")
+        if self.commander:
+            from yaxiio import async_loop
+            return async_loop.run_coro(llm.chat(prompt), timeout=timeout)
+        import asyncio
+        loop = asyncio.new_event_loop()
+        try: return loop.run_until_complete(llm.chat(prompt))
+        finally: loop.close()
+
+    @staticmethod
+    def _bump_thinking(current: str) -> str:
+        """升级 thinking: off→low→medium→high→max"""
+        order = ["off", "low", "medium", "high", "max"]
+        try:
+            idx = order.index(current)
+            return order[min(idx + 1, len(order) - 1)]
+        except ValueError:
+            return "high"
+
+    # ═══════════════════════════════════════════════
+    # 目标自检: 差距分析 + 子任务生成
+    # ═══════════════════════════════════════════════
+
+    def _analyze_gap(self, task_id: str, payload: dict, results: dict, l5_scores: dict) -> dict:
+        """Gap analysis using UniversalGapAnalyzer — zero industry hardcoding"""
+        try:
+            from modules.layer5.gap_analyzer_v2 import UniversalGapAnalyzer
+            analyzer = UniversalGapAnalyzer()
+
+            # Load agent card
+            agent_card = None
+            try:
+                if self.commander and self.commander.redis:
+                    primary_agent = l5_scores.get("primary_agent", "\u5ba1\u8ba1\u5b98")
+                    card_raw = self.commander.redis.get(f"agent:card:{primary_agent}")
+                    if card_raw:
+                        agent_card = json.loads(card_raw)
+            except Exception:
+                pass
+
+            return analyzer.analyze(
+                task={"action": payload.get("action", ""),
+                      "description": str(payload.get("task", ""))[:300]},
+                results=results,
+                l5_scores=l5_scores,
+                agent_card=agent_card,
+            )
+        except Exception as e:
+            print(f"[WF] UniversalGapAnalyzer failed ({e}), fallback to legacy", flush=True)
+            return self.gap.analyze(task_id, payload, results, l5_scores)
+
+    def _detect_content_issues(self, results: dict) -> dict:
+        """Parse subtask outputs for concrete content problems"""
+        import re
+        issues = {"mixed_lang": 0, "empty_fields": 0, "missing_pages": 0, "truncated": 0}
+        for sid, res in results.items():
+            output = str(res.get("output", ""))
+            for line in output.split("\n"):
+                if "mixed" in line.lower() or "混杂" in line:
+                    nums = re.findall(r"(\d{3,})", line)
+                    if nums: issues["mixed_lang"] = max(issues["mixed_lang"], int(nums[0]))
+                if "empty" in line.lower() or "空字段" in line:
+                    if "empty" in line.lower():
+                        nums = re.findall(r"(\d{3,})", line)
+                        if nums: issues["empty_fields"] = max(issues["empty_fields"], int(nums[0]))
+                if "missing" in line.lower() or "缺页" in line:
+                    nums = re.findall(r"(\d+)", line)
+                    if nums and int(nums[0]) < 1000:
+                        issues["missing_pages"] = max(issues["missing_pages"], int(nums[0]))
+        return issues
+
+    def _gap_to_subtasks(self, task_id: str, gap: dict, payload: dict, round_num: int) -> list:
+        """Convert gap analysis into executable subtasks"""
+        next_actions = gap.get("next_actions", [])
+        if not next_actions:
+            return []
+
+        subtasks = []
+        for i, action in enumerate(next_actions):
+            sid = "s%d_%d" % (round_num, i+1)
+            agent = action.get("agent", "审计官")
+            action_name = action.get("action", action.get("description", "continue"))
+            subtasks.append({
+                "id": sid,
+                "action": action_name[:60],
+                "agent": agent,
+                "depends": action.get("depends", []),
+                "prompt": action.get("prompt", action.get("description", action_name))[:500],
+                "tool": action.get("tool", "")
+            })
+
+    def stats(self) -> dict:
+        with self._lock: active_count = len(self.active)
+        with self._count_lock: total = self.task_count
+        recent = [s["score"] for s in self.score_history[-20:]]
+        return {"active_workflows": active_count, "total_processed": total,
+                "avg_score": round(sum(recent)/len(recent),2) if recent else 0,
+                "evolution_queue": len(self.evolution_queue())}
 

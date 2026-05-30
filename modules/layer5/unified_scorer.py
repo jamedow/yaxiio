@@ -17,7 +17,6 @@ import json
 import time
 import os
 from typing import Dict, List, Optional
-from modules.shared.foolproof import try_primary_fallback, QUALITY_PRESETS
 
 
 class UnifiedScorer:
@@ -65,10 +64,6 @@ class UnifiedScorer:
     # 主入口
     # ═══════════════════════════════════════════════
 
-    def score_with_fallback(self, primary_fn, fallback_fn, label="评分"):
-        """防呆: 主评分路径失败时自动降级"""
-        return try_primary_fallback(primary_fn, fallback_fn, label)
-
     def score(self,
               task: dict,
               result: dict,
@@ -100,16 +95,6 @@ class UnifiedScorer:
                 }
             }
         """
-        # 防呆: quality 自动映射到评分策略
-        if agent_card and "quality" in agent_card:
-            quality_map = {"fast": "fast", "standard": "standard", "premium": "deep"}
-            strategy = quality_map.get(agent_card["quality"], strategy)
-        
-        # 防呆: quality 自动映射到评分策略
-        if agent_card and "quality" in agent_card:
-            quality_map = {"fast": "fast", "standard": "standard", "premium": "deep"}
-            strategy = quality_map.get(agent_card["quality"], strategy)
-        
         cfg = self.STRATEGIES.get(strategy, self.STRATEGIES["standard"])
         scores_from_sources = {}
         all_dimensions = {}

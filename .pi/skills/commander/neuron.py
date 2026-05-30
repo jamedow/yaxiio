@@ -22,13 +22,6 @@ from datetime import datetime
 sys.path.insert(0, "/opt/commander")
 sys.path.insert(0, "/app/.pi/skills/commander")
 
-# ── Fool-proof ──
-from modules.shared.foolproof import (
-    get_complexity_tier, COMPLEXITY_TIERS,
-    apply_quality_preset, validate_card, validate_in_range,
-    validate_not_empty, safe_default
-)
-
 # ── Redis ──
 try:
     from trace_logger import TraceLogger
@@ -152,18 +145,9 @@ class Neuron:
         self.retry_count = 0
         self.task_start_time = 0
         if self.card:
-            self.task_timeout = validate_in_range(
-                self.card.get("lifecycle", {}).get("task_timeout", 300),
-                "task_timeout", 30, 3600
-            )
-            self.max_retries = validate_in_range(
-                self.card.get("lifecycle", {}).get("max_retries", 3),
-                "max_retries", 1, 10
-            )
-            card_name = validate_not_empty(self.card.get("name", ""), "Agent")
-            card_ver = self.card.get("version", "?")
-            log("CARD: {} v{} timeout={}s retries={}".format(
-                card_name, card_ver, self.task_timeout, self.max_retries))
+            self.task_timeout = self.card.get("lifecycle", {}).get("task_timeout", 300)
+            self.max_retries = self.card.get("lifecycle", {}).get("max_retries", 3)
+            log("CARD: " + self.card.get("name","?") + " v" + self.card.get("version","?"))
         # 4. Load Memory
         self._load_memory()
 
@@ -171,71 +155,20 @@ class Neuron:
         self._register()
 
     def _load_capability_card(self) -> dict:
-        """Load capability card + fool-proof validation + quality preset expansion"""
-        card = {}
-        
-        # 1. Load from file
         config_path = os.environ.get("AGENT_CONFIG", "")
         if config_path and os.path.exists(config_path):
             try:
                 with open(config_path) as f:
-                    card = json.load(f)
-            except Exception as e:
-                log(f"Card file load failed: {e}")
-        
-        # 2. Load from Redis (file takes priority)
-        if not card and self.redis:
+                    return json.load(f)
+            except:
+                pass
+        if self.redis:
             try:
                 raw = self.redis.get(f"agent:card:{self.name}")
                 if raw:
-                    card = json.loads(raw)
-            except Exception:
+                    return json.loads(raw)
+            except:
                 pass
-        
-        if not card:
-            return {}
-        
-        # 3. Fool-proof: expand quality preset
-        if "quality" in card:
-            quality = card.pop("quality")
-            try:
-                preset = apply_quality_preset(quality)
-                for k, v in preset.items():
-                    if k not in card:
-                        card[k] = v
-                log("quality={} -> model={} thinking={}".format(
-                    quality, card.get("model","?"), card.get("thinking","?")))
-            except ValueError as e:
-                log(str(e))
-        
-        # 4. Fool-proof: validate card
-        issues = validate_card(card)
-        for issue in issues:
-            log("Card issue: {}".format(issue))
-        
-        # 5. Fool-proof: safe defaults
-        lc = card.setdefault("lifecycle", {})
-        lc.setdefault("task_timeout", safe_default("task_timeout"))
-        lc.setdefault("max_retries", safe_default("max_retries"))
-        
-        # 6. Apply complexity tier (progressive disclosure)
-        tier_id = int(os.environ.get("YAXIIO_COMPLEXITY_TIER", "1"))
-        tier = get_complexity_tier(tier_id)
-        card["_complexity_tier"] = tier_id
-        if tier.get("auto_fill", True):
-            # Auto-fill missing params from quality preset
-            if "quality" not in card:
-                card["quality"] = "standard"
-            preset = apply_quality_preset(card["quality"])
-            for k, v in preset.items():
-                if k not in card:
-                    card[k] = v
-            log("T{}: {} - auto_fill from quality={}".format(
-                tier_id, tier["name"], card.get("quality", "?")))
-        else:
-            log("T{}: {} - manual control (no auto_fill)".format(
-                tier_id, tier["name"]))
-        
         return {}
 
     def _set_state(self, new_state: str):

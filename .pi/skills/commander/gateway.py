@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from maintenance_runner import MaintenanceRunner
 from session_manager import SessionManager, SessionBridge
-# Phase 2: 旧 CommanderV2 已移除，Gateway 只做结果转发 (yaxiio.py Commander 是唯一任务处理器，Gateway 只做 WS/HTTP 代理)
+# Phase 2: CommanderV2 替换为 MaintenanceRunner (yaxiio.py Commander 是唯一任务处理器)
 
 # 可选 WebSocket 库
 try:
@@ -168,8 +168,8 @@ class CommanderV3:
         # 4. 启动定时任务
         self._tasks.add(asyncio.create_task(self._run_periodic_tasks()))
 
-        # 5. 启动结果转发循环 (只订阅 agent:result，不处理任务) (yaxiio.py Commander 是唯一任务处理器，Gateway 只做 WS/HTTP 代理)
-        self._tasks.add(asyncio.create_task(self._run_result_forwarder()))
+        # 5. 启动结果转发循环 (yaxiio.py Commander 是唯一任务处理器)
+        self._tasks.add(asyncio.create_task(self._run_commander_v2_loop()))
 
         self._running = True
         print(f"[CommanderV3] ✅ 全部服务就绪 (WebSocket:{self.ws_port}, HTTP:{self.http_port})")
@@ -376,7 +376,7 @@ class CommanderV3:
             await self._ws_send(ws, {
                 "type": "task_error",
                 "correlation_id": correlation_id,
-                "error": "请提供 task 参数", "advice": "示例: {\"task\": \"翻译 100 条产品描述到阿拉伯语\"}",
+                "error": "缺少 task 参数",
             })
             return
 
@@ -523,14 +523,14 @@ class CommanderV3:
         async def api_queue_stats(request):
             session_token = request.query.get("session_token", "")
             if not session_token:
-                return web.json_response({"error": "请提供 session_token", "advice": "在请求头或 URL 参数中携带 session_token。新用户请先调用 /api/register 获取 token。"}, status=400)
+                return web.json_response({"error": "缺少 session_token"}, status=400)
             result = await self.session_mgr.get_queue_stats(session_token)
             return web.json_response(result)
 
         async def api_history(request):
             session_token = request.query.get("session_token", "")
             if not session_token:
-                return web.json_response({"error": "请提供 session_token", "advice": "在请求头或 URL 参数中携带 session_token。新用户请先调用 /api/register 获取 token。"}, status=400)
+                return web.json_response({"error": "缺少 session_token"}, status=400)
             offset = int(request.query.get("offset", 0))
             limit = int(request.query.get("limit", 50))
             result = await self.session_mgr.get_history(
@@ -550,7 +550,7 @@ class CommanderV3:
         async def metrics(request):
             try:
                 import redis
-                r = redis.Redis(protocol=2, host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
+                r = redis.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
                 # 扫描真实任务 key 数量
                 task_count = 0
                 try:
@@ -573,7 +573,7 @@ class CommanderV3:
         async def trace_logs(request):
             trace_id = request.match_info.get("trace_id", "")
             if not trace_id:
-                return web.json_response({"error": "请提供 trace_id", "advice": "trace_id 用于追踪任务全链路日志。可在任务提交时从 Commander 响应中获取。"}, status=400)
+                return web.json_response({"error": "trace_id required"}, status=400)
             try:
                 from trace_logger import query_trace_logs
                 logs = query_trace_logs(trace_id)
@@ -584,7 +584,7 @@ class CommanderV3:
         async def health_detailed(request):
             try:
                 import redis
-                r = redis.Redis(protocol=2, host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
+                r = redis.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
                 redis_ok = r.ping()
             except:
                 redis_ok = False
@@ -610,7 +610,7 @@ class CommanderV3:
             try:
                 from trace_logger import REDIS_HOST, REDIS_PORT, REDIS_PASS
                 import redis as _r, json
-                r = _r.Redis(protocol=2, host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASS or None,
+                r = _r.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASS or None,
                             decode_responses=True, socket_connect_timeout=2)
                 logs = []
                 for key in r.scan_iter("trace:*:log", count=10):
@@ -680,7 +680,7 @@ class CommanderV3:
     # 结果转发循环
     # ═══════════════════════════════════════════════════════════
 
-    async def _run_result_forwarder(self):
+    async def _run_commander_v2_loop(self):
         """在异步上下文中运行结果转发循环。yaxiio.py Commander 是唯一的任务处理器。
 
         拦截 agent:result 频道消息，通过 SessionManager 推送给 WebSocket 客户端。

@@ -427,19 +427,11 @@ class CommanderManager:
         except: pass
         cls.comm_proc = subprocess.Popen(
             [sys.executable, script_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            env=os.environ.copy(),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
             cwd=os.path.dirname(script_path),
         )
-        def _read_commander_output():
-            for line in iter(cls.comm_proc.stdout.readline, b""):
-                text = line.decode(errors="replace").rstrip()
-                if text:
-                    log(f"[Commander] {text}", "CMD")
-        import threading
-        t = threading.Thread(target=_read_commander_output, daemon=True)
-        t.start()
         Path(COMMANDER_PID_FILE).write_text(str(cls.comm_proc.pid))
         return True
 
@@ -590,7 +582,7 @@ class CommanderScorer:
                     agent_usage.add(st.get("agent", ""))
 
             if not scores:
-                return {"evaluated": True, "score": 5, "reason": "no L5 scores available"}
+                return {"evaluated": True, "overall": 5, "reason": "no L5 scores available"}
 
             avg_score = sum(scores) / len(scores)
             utilization = len(agent_usage) / max(1, len([a for a in ["翻译官","审计官","UI/UX设计师","品牌策略师","前端工程师","售前经理","商务经理"] if a in str(tasks)]))
@@ -755,10 +747,12 @@ def main():
 
             # ── Commander 元评分 (每 10 次) ──
             eval_result = commander_scorer.evaluate()
-            if eval_result.get("evaluated") and eval_result.get("score") is not None:
+            if eval_result.get("evaluated") and eval_result.get("overall") is not None:
                 action = eval_result.get("action", "none")
-                log(f"📊 Commander 评分: {eval_result['overall']}/10 "
-                    f"(samples={eval_result['samples']}, action={action})", "DEBUG")
+                overall = eval_result.get("overall", eval_result.get("score", "?"))
+                samples = eval_result.get("samples", "?")
+                log(f"📊 Commander 评分: {overall}/10 "
+                    f"(samples={samples}, action={action})", "DEBUG")
                 if action == "critical":
                     log(f"⛔ Commander 严重低分! streak={commander_scorer.get_streak()}", "CRITICAL")
                 elif action == "evolve_prompt":

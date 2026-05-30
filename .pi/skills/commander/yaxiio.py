@@ -502,6 +502,16 @@ class Commander:
         if not api_key:
             api_key = os.environ.get("DEEPSEEK_API_KEY", os.environ.get("LLM_API_KEY", ""))
 
+        # Key 健康检查: 快速验证 API Key 是否有效
+        if api_key and not self._verify_api_key(api_key):
+            print(f"[雅溪] ⚠️ API Key 失效, 尝试备用Key...", flush=True)
+            fallback = self._find_fallback_key()
+            if fallback:
+                api_key = fallback
+                print(f"[雅溪] ✅ 备用Key生效", flush=True)
+            else:
+                print(f"[雅溪] ❌ 无可用API Key, Neuron可能无法工作", flush=True)
+
         env = {
             **os.environ,
             "AGENT_NAME": name,
@@ -789,6 +799,40 @@ class Commander:
     # ═══════════════════════════════════════════════
     # LLM 客户端
     # ═══════════════════════════════════════════════
+    def _verify_api_key(self, api_key: str) -> bool:
+        """快速验证 API Key 是否有效 (发一个最小请求)"""
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1", timeout=10)
+            # 发一个最小 token 的请求来验证
+            resp = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=1, temperature=0,
+            )
+            return resp.choices[0].message.content is not None
+        except Exception as e:
+            print(f"[雅溪] Key验证失败: {str(e)[:80]}", flush=True)
+            return False
+
+    def _find_fallback_key(self) -> str:
+        """查找备用 API Key: Redis备用key → 环境变量 → None"""
+        try:
+            fallback = self.redis.client.get("yaxiio:config:llm_api_key_backup")
+            if fallback and self._verify_api_key(fallback):
+                # 将备用key提升为主key
+                self.redis.client.set("yaxiio:config:llm_api_key", fallback)
+                return fallback
+        except Exception:
+            pass
+        # 尝试环境变量中的备用key
+        for env_var in ("DEEPSEEK_API_KEY_BACKUP", "LLM_API_KEY_BACKUP", "OPENAI_API_KEY"):
+            key = os.environ.get(env_var, "")
+            if key and key != os.environ.get("DEEPSEEK_API_KEY", ""):
+                if self._verify_api_key(key):
+                    return key
+        return ""
+
     def _get_llm(self, task_type: str = "default"):
         """获取 LLM 客户端, 按任务类型选择模型"""
         try:

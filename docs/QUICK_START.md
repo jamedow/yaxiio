@@ -1,20 +1,15 @@
 # 雅溪 Yaxiio 快速上手指南
 
-> 5 分钟第一个 Agent → 10 分钟定制 Agent → 15 分钟自我进化
+> 选择你的使用深度。每节标注了适合的用户等级。
+> 🟢 平民级 | 🔵 维护级 | 🟣 技术级 | ⚪ 大神级
 
 ---
 
-## 前置条件
+## 🟢 平民级：5 分钟启动 + 提交第一个任务
 
-- Docker 已安装
-- DeepSeek API Key（或其他 OpenAI 兼容的 Key）
-- 2GB 可用内存
+> 不需要知道 Agent 是什么。只需要描述任务目标。
 
----
-
-## 一、5 分钟：启动 Yaxiio + 创建第一个 Agent
-
-### 1.1 启动容器
+### 启动
 
 ```bash
 docker run -d --name yaxiio \
@@ -23,166 +18,104 @@ docker run -d --name yaxiio \
   -e DEEPSEEK_API_KEY=你的Key \
   --restart unless-stopped \
   yaxiio:prod
-```
-
-### 1.2 验证服务
-
-```bash
 curl http://localhost:3399/health
-# → {"status":"ok","version":"3.0.0","uptime":12}
 ```
 
-### 1.3 创建第一个 Agent
+### 提交任务
 
-```bash
-docker exec yaxiio bash -c '
-  redis-cli -a Yaxiio2026 PUBLISH yaxiio:agent:commander \
-    '"'"'{"type":"task","taskId":"hello-001","from":"cli","payload":{"action":"status"}}'"'"'
-'
+打开 Dashboard `http://localhost:3399`，打字：
+
+```
+把 power 行业 100 条产品描述翻译成阿拉伯语
 ```
 
-Yaxiio 会自动创建一个临时 Agent 来处理这个任务。
-
-### 1.4 查看结果
-
-```bash
-docker exec yaxiio bash -c 'redis-cli -a Yaxiio2026 GET yaxiio:task:hello-001'
-# → {"task_id":"hello-001","status":"DONE","result":{...}}
-```
+系统会自己拆解、调度、执行、评分。你等着看结果就行。
 
 ---
 
-## 二、10 分钟：用能力卡片定制 Agent
+## 🔵 维护级：10 分钟定制 Agent
 
-### 2.1 创建能力卡片
+> 会看说明书。知道 quality 预设就够了。
 
-能力卡片是一个 JSON 文件，定义了 Agent 的身份、大脑、工具箱。创建 `my-auditor.json`：
+### quality 三档预设
+
+```json
+{ "name": "我的翻译官", "quality": "standard", "skills": ["translate-engine"] }
+```
+
+| quality | 自动设置 | 适合 |
+|---------|---------|------|
+| `fast` | flash 模型，不深度思考 | 简单翻译、分类 |
+| `standard` | chat 模型，适度思考 | 大多数场景 |
+| `premium` | max 模型，深度思考 | 审计、复杂分析 |
+
+想微调个别参数？直接加到卡片里就行——`"max_retries": 5`。
+
+---
+
+## 🟣 技术级：15 分钟自我进化 + 深度调优
+
+> 了解设计思想。能精确控制每个参数。
+
+<details>
+<summary>完整能力卡片参数列表</summary>
 
 ```json
 {
-  "name": "我的审计官",
-  "role": "专业内容质量审计",
+  "name": "高级翻译官",
   "quadrant": "strategic",
-  "version": "1.0.0",
-  "model": "deepseek-chat",
-  "thinking": "medium",
-  "temperature": 0.3,
-  "system_prompt": "你是一个严谨的内容审计专家。检查文本的术语一致性、数据准确性、格式规范性。输出问题列表和修改建议。",
-  "skills": ["audit-engine"],
-  "tools": ["mongo_query", "redis_query", "terminology_check"],
-  "lifecycle": {
-    "task_timeout": 300,
-    "max_retries": 3,
-    "idle_timeout": 600
-  }
+  "quality": "premium",
+  "model": "deepseek-max",
+  "thinking": "high",
+  "temperature": 0.1,
+  "few_shot_examples": [
+    { "input": "EPDM rubber gasket", "output": "EPDM橡胶密封垫片" }
+  ],
+  "lifecycle": { "task_timeout": 600, "max_retries": 5 }
 }
 ```
+</details>
 
-### 2.2 注册能力卡片到 Redis
+### 触发进化
 
 ```bash
-docker exec yaxiio bash -c '
-  redis-cli -a Yaxiio2026 SET "agent:card:我的审计官" "$(cat /opt/yaxiio/my-auditor.json)"
-  redis-cli -a Yaxiio2026 SADD "agent:registry" "我的审计官"
-'
+docker exec yaxiio redis-cli -a Yaxiio2026 PUBLISH yaxiio:agent:commander \
+  '{"type":"task","taskId":"evolve-001","payload":{"action":"translate","task":"翻译500条到阿拉伯语","_thinking":"high"}}'
 ```
 
-### 2.3 启动 Agent
+### 全链路追踪
 
 ```bash
-docker exec yaxiio bash -c '
-  AGENT_NAME="我的审计官" AGENT_SKILL="audit-engine" \
-  LLM_MODEL="deepseek-chat" python3 /opt/yaxiio/.pi/skills/commander/neuron.py &
-'
-```
-
-### 2.4 派任务
-
-```bash
-docker exec yaxiio bash -c '
-  redis-cli -a Yaxiio2026 PUBLISH "lightingmetal:agent:我的审计官" \
-    '"'"'{"type":"task","taskId":"audit-001","payload":{"action":"audit","task":"审计 power 行业页面术语一致性"}}'"'"'
-'
+curl http://localhost:3399/trace/task-001
+# L1→L5 每一步决策理由 + 耗时
 ```
 
 ---
 
-## 三、15 分钟：L4+L5 自我进化
+## ⚪ 大神级：底层调优
 
-### 3.1 场景
-
-你有一个翻译 Agent，但翻译质量（L5 评分）稳定在 6-7 分。你想让系统自动优化它。
-
-### 3.2 触发进化
-
-提交一个复杂任务，让系统自己跑 3 轮自检循环：
+> 深入理解实现。能改宪法、调协议、做联邦。
 
 ```bash
-docker exec yaxiio bash -c '
-  redis-cli -a Yaxiio2026 PUBLISH yaxiio:agent:commander \
-    '"'"'{"type":"task","taskId":"evolve-001","payload":{"action":"translate","task":"翻译 100 条产品描述到阿拉伯语，确保术语一致","_thinking":"high"}}'"'"'
-'
-```
+# 修改宪法白名单
+redis-cli -a Yaxiio2026 SET "yaxiio:config:forbidden_actions" '["site_audit","custom_action"]'
 
-### 3.3 观察进化过程
+# 自定义 quality 预设
+redis-cli -a Yaxiio2026 SET "yaxiio:config:quality_presets" \
+  '{"turbo":{"model":"flash","thinking":"off","max_retries":1}}'
 
-```bash
-# 实时日志
-docker logs -f yaxiio
-
-# 查看 L5 评分变化
-docker exec yaxiio bash -c '
-  for i in $(seq 1 3); do
-    redis-cli -a Yaxiio2026 GET "yaxiio:task:evolve-001" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"Round: l5={d.get(\"l5_result\",{}).get(\"overall\",\"?\")}\")"
-    sleep 10
-  done
-'
-```
-
-### 3.4 进化结果
-
-系统自动做了这些事：
-1. 第一轮执行 → L5 评分 6 分 → 触发 gap 分析
-2. 差距：术语不一致 → L0 搜索 web 知识 → 补充术语表
-3. 第二轮执行（带术语表）→ L5 评分 8 分 → 通过
-4. 任务经验写入 L0 经验库，下次同类任务直接参考
-
----
-
-## 四、常用调试命令
-
-```bash
-# 进入容器
-docker exec -it yaxiio bash
-
-# 健康检查
-curl -s 172.17.0.5:3399/health | python3 -m json.tool
-
-# 查看指标
-curl -s 172.17.0.5:3399/metrics
-
-# 查看链路日志
-curl -s 172.17.0.5:3399/trace/hello-001
-
-# 查看活跃 Agent
-redis-cli -a Yaxiio2026 SMEMBERS "commander:agents:active"
-
-# 查看宪法统计
-redis-cli -a Yaxiio2026 GET "yaxiio:constitution:violations" | python3 -c "import sys; print(len(sys.stdin.read().splitlines()))"
-
-# 查看任务状态
-redis-cli -a Yaxiio2026 KEYS "yaxiio:task:*" | while read k; do echo "$k: $(redis-cli -a Yaxiio2026 GET $k | python3 -c 'import sys,json;print(json.load(sys.stdin).get(\"status\",\"?\"))')"; done
+# 联邦部署
+curl -X POST http://yaxiio-a:3404/jsonrpc \
+  -d '{"method":"federate","params":{"peer":"http://yaxiio-b:3404"}}'
 ```
 
 ---
 
-## 五、下一步
-
-| 你想做什么 | 阅读 |
-|-----------|------|
-| 理解设计思想 | `DESIGN-PHILOSOPHY.md` |
-| 深入架构 | `ARCHITECTURE.md` |
-| 写能力卡片 | `CAPABILITY-CARD-SPEC.md` |
-| 理解状态机 | `STATE-MACHINE.md` |
-| 查看 API | `API.md` |
-| 了解当前代码质量 | `CODE_REVIEW.md` |
+| 下一步 | 适合 |
+|--------|------|
+| [设计哲学](DESIGN_PHILOSOPHY.md) | 🟣 |
+| [完整架构](ARCHITECTURE.md) | 🟣 |
+| [能力卡片规范](CAPABILITY_CARD_SPEC.md) | 🔵 |
+| [API 文档](API.md) | 🔵 |
+| [质量宪章](QUALITY_CONSTITUTION.md) | ⚪ |
+| [防呆设计体系](YAXIIO_DESIGN.md) | 🟣 |

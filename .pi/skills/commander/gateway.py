@@ -550,7 +550,7 @@ class CommanderV3:
         async def metrics(request):
             try:
                 import redis
-                r = redis.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
+                r = redis.Redis(protocol=2, host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
                 # 扫描真实任务 key 数量
                 task_count = 0
                 try:
@@ -584,7 +584,7 @@ class CommanderV3:
         async def health_detailed(request):
             try:
                 import redis
-                r = redis.Redis(host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
+                r = redis.Redis(protocol=2, host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD",""), protocol=2, decode_responses=True, socket_connect_timeout=2)
                 redis_ok = r.ping()
             except:
                 redis_ok = False
@@ -610,7 +610,7 @@ class CommanderV3:
             try:
                 from trace_logger import REDIS_HOST, REDIS_PORT, REDIS_PASS
                 import redis as _r, json
-                r = _r.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASS or None,
+                r = _r.Redis(protocol=2, host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASS or None,
                             decode_responses=True, socket_connect_timeout=2)
                 logs = []
                 for key in r.scan_iter("trace:*:log", count=10):

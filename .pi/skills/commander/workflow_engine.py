@@ -786,6 +786,37 @@ class WorkflowEngine:
             lines.append(f"- {status} **{st['action']}** ({st['agent']}): {output}")
         return "\n".join(lines)
 
+
+    def _get_llm(self, task_type: str = "default", task_desc: str = ""):
+        """LLM client with IntelligentModelRouter + auto-fallback"""
+        if self.commander:
+            try:
+                if hasattr(self, "model_router_v2") and self.model_router_v2:
+                    task_info = {"action": task_type, "description": task_desc or task_type}
+                    cfg = self.model_router_v2.select(task_info)
+                    model = cfg.get("model", task_type)
+                    thinking = cfg.get("thinking", "medium")
+                else:
+                    model = task_type; thinking = "medium"
+                return self.commander._get_llm(model, thinking)
+            except Exception:
+                try:
+                    return self.commander._get_llm()
+                except:
+                    pass
+        return None
+
+    def _call_llm(self, prompt: str, timeout: float = 30.0) -> str:
+        llm = self._get_llm()
+        if not llm: raise RuntimeError("LLM unavailable")
+        if self.commander:
+            from yaxiio import async_loop
+            return async_loop.run_coro(llm.chat(prompt), timeout=timeout)
+        import asyncio
+        loop = asyncio.new_event_loop()
+        try: return loop.run_until_complete(llm.chat(prompt))
+        finally: loop.close()
+
     def _llm_decompose(self, task_id: str, payload: dict, experience_context: str = "", primary_agent: str = None) -> list:
         """LLM decompose with data-driven batch parallelism"""
         import re

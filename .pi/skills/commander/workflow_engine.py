@@ -769,74 +769,9 @@ class WorkflowEngine:
         check_and_heal(task_id, subtasks, results, self.commander)
 
     def _cleanup_task(self, task_id: str, subtasks: list, final_score: int):
-        """Post-task cleanup: ExperienceFlywheel + destroy memory"""
-        agents_used = set(s["agent"] for s in subtasks)
-        action = self._current_intent or "general"
-
-        # ── Primary: ExperienceFlywheel ──
-        try:
-            flywheel = self.flywheel
-            flywheel.save_experience(
-                task_id=task_id,
-                task_description=str(self._current_intent or ""),
-                subtasks=subtasks,
-                final_score=float(final_score),
-                l5_signals={},
-                agents_used=agents_used,
-                intent=action,
-            )
-            print(f"[WF] {task_id} flywheel: {len(agents_used)} agents, score={final_score}", flush=True)
-        except Exception as _e:
-            print(f"[WF] {task_id} flywheel failed, fallback to l0", flush=True)
-            # Fallback to legacy L0 storage
-            try:
-                import redis as _r
-                _rd = _r.Redis(protocol=2, host="127.0.0.1", port=6379,
-                             password=os.environ.get("REDIS_PASSWORD", ""),
-                             decode_responses=True)
-                self.l0._save_experience(task_id, subtasks, final_score, agents_used, _rd)
-            except Exception:
-                pass
-
-        # ── Cleanup: destroy task memory ──
-        try:
-            import redis as _r
-            _rd = _r.Redis(protocol=2, host="127.0.0.1", port=6379,
-                         password=os.environ.get("REDIS_PASSWORD", ""),
-                         decode_responses=True)
-            for agent in agents_used:
-                _rd.delete(f"agent:{agent}:{task_id}:memory")
-            # Cleanup workflow snapshot
-            self.snapshot.cleanup(task_id)
-        except Exception:
-            pass
-
-    def _save_experience(self, task_id, subtasks, final_score, agents_used, r):
-        """L0: Save structured experience for future retrieval"""
-        intent = self._current_intent or "general"
-        for agent in agents_used:
-            if agent.startswith("_"): continue
-            exp = {
-                "task_id": task_id,
-                "agent": agent,
-                "intent": intent,
-                "score": final_score,
-                "subtask_count": len(subtasks),
-                "ts": time.time(),
-                "success": final_score >= 7,
-                "agents_involved": list(agents_used),
-                "subtask_actions": [s.get("action", "")[:60] for s in subtasks[:5]],
-            }
-            key = f"exp:{intent}:{agent}"
-            r.lpush(key, json.dumps(exp, ensure_ascii=False))
-            r.ltrim(key, 0, 49)  # Keep max 50 experiences per intent+agent
-        # Also save by intent only (agent-agnostic)
-        all_actions = [s.get("action","")[:60] for s in subtasks[:5]]
-        intent_exp = {"task_id": task_id, "score": final_score, "agents": list(agents_used),
-                      "actions": all_actions, "ts": time.time(), "success": final_score >= 7}
-        r.lpush(f"exp:{intent}:all", json.dumps(intent_exp, ensure_ascii=False))
-        r.ltrim(f"exp:{intent}:all", 0, 49)
-        print(f"[L0] saved experience: {intent} score={final_score} agents={list(agents_used)}", flush=True)
+        """Post-task cleanup — delegate to workflow_utils_extracted"""
+        from workflow_utils_extracted import cleanup_task
+        cleanup_task(self, task_id, subtasks, final_score)
 
     _current_intent = "general"
 

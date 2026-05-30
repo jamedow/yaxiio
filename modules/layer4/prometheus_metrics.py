@@ -1,14 +1,6 @@
 import time
 _start=time.time()
-_M={
-    "yaxiio_tasks_total":0,"yaxiio_tasks_failed":0,
-    "yaxiio_llm_calls":0,"yaxiio_llm_tokens":0,
-    "yaxiio_agents_active":0,"yaxiio_agents_core":0,
-    "yaxiio_agents_strategic":0,"yaxiio_agents_utility":0,
-    "yaxiio_agents_ephemeral":0,
-    "yaxiio_queue_depth":0,"yaxiio_l5_score_avg":0,
-    "yaxiio_model_flash_calls":0,"yaxiio_model_chat_calls":0,"yaxiio_model_max_calls":0,
-}
+_M={"yaxiio_tasks_total":0,"yaxiio_tasks_failed":0,"yaxiio_llm_calls":0,"yaxiio_llm_tokens":0,"yaxiio_agents":0}
 def update(k,d=1):
     if k in _M: _M[k]+=d
 def snapshot():

@@ -607,6 +607,16 @@ class Commander:
             }
         }
         try:
+            # Stream 发布（医生也能从 Stream 消费）
+            try:
+                from stream_bridge import StreamBridge
+                _bridge = StreamBridge(
+                    redis_host="127.0.0.1", redis_port=6379,
+                    redis_password=os.environ.get("REDIS_PASSWORD", ""))
+                _bridge.publish_task("L4", doctor_msg, task_id)
+            except Exception:
+                pass
+            # Pub/Sub 回退
             count = self.redis.client.publish(
                 f"lightingmetal:agent:{doctor_name}",
                 json.dumps(doctor_msg, ensure_ascii=False, default=str)
@@ -847,6 +857,31 @@ class Commander:
                 try: self.redis.client.ping()
                 except: self.redis = RedisClient()
 
+                # Stream 消费 — 拾取 Pub/Sub 丢失的任务
+                try:
+                    from stream_bridge import StreamBridge
+                    _bridge = StreamBridge(
+                        redis_host="127.0.0.1", redis_port=6379,
+                        redis_password=os.environ.get("REDIS_PASSWORD", ""))
+                    _incoming_stream = "yaxiio:stream:task_incoming"
+                    _incoming_group = "commander-main"
+                    _bridge.ensure_group(_incoming_stream, _incoming_group)
+                    stream_tasks = _bridge.r.xreadgroup(
+                        groupname=_incoming_group,
+                        consumername="commander",
+                        streams={_incoming_stream: ">"},
+                        block=100, count=10)
+                    if stream_tasks:
+                        for stream_name, messages in stream_tasks:
+                            for msg_id, fields in messages:
+                                data = json.loads(fields.get("payload", "{}"))
+                                if data.get("type") == "task":
+                                    self.handle_task(data)
+                                _bridge.r.xack(_incoming_stream, _incoming_group, msg_id)
+                except Exception:
+                    pass
+
+                # Pub/Sub 快速通道
                 pubsub = self.redis.client.pubsub()
                 pubsub.subscribe("yaxiio:agent:commander", "lightingmetal:agent:commander")
                 deadline = time.time() + 55

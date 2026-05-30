@@ -1,5 +1,3 @@
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".pi", "skills", "commander"))
 """
 L1 Perception Handler — 感知层纯函数 + 委托封装
 ===============================================

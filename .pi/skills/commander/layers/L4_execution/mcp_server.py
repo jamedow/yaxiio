@@ -103,12 +103,21 @@ class ExecutionServer(MCPServer):
 
 
     def dispatch_task(self, action: str = "", codebase: str = "", issue: str = "", **kwargs) -> dict:
-        """Dispatch task to Commander via PubSub. Returns taskId."""
+        """Dispatch task to Commander via Stream + PubSub. Returns taskId."""
         import redis as _r, json as _j, uuid, time
         try:
             rr = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD", ""), decode_responses=True)
             tid = f"mcp-{uuid.uuid4().hex[:8]}"
             msg = {"type":"task","taskId":tid,"from":"mcp-l4","to":"commander","payload":{"action":action,"codebase":codebase,"issue":issue,**kwargs}}
+            # Stream 持久化
+            try:
+                rr.xadd("yaxiio:stream:task_incoming", {
+                    "task_id": tid, "payload": _j.dumps(msg, ensure_ascii=False),
+                    "timestamp": str(time.time()),
+                }, maxlen=10000)
+            except Exception:
+                pass
+            # Pub/Sub 快速通道
             subs = rr.publish("yaxiio:agent:commander", _j.dumps(msg, ensure_ascii=False))
             rr.close()
             return {"task_id": tid, "action": action, "subscribers": subs, "status": "dispatched"}

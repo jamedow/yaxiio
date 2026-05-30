@@ -220,28 +220,42 @@ class AsyncOrchestrator:
 
     async def _dispatch(self, agent_name: str, task_id: str,
                         sid: str, action: str, prompt: str) -> dict:
-        """异步分发到 L4 执行层"""
-        # 优先 Redis Pub/Sub
+        """异步分发到 L4 执行层 — Stream 优先 + Pub/Sub 回退"""
+        msg = {
+            "type": "task", "taskId": task_id, "sid": sid,
+            "from": "orchestrator", "to": agent_name,
+            "replyTo": "lightingmetal:agent:commander",
+            "payload": {
+                "action": action, "prompt": prompt,
+                "task_id": task_id, "sid": sid,
+            },
+        }
+
+        # 优先 Stream (消息持久化，不丢失)
+        try:
+            from stream_bridge import StreamBridge
+            _bridge = StreamBridge(
+                redis_host="127.0.0.1", redis_port=6379,
+                redis_password=os.environ.get("REDIS_PASSWORD", ""))
+            _bridge.publish_task("L4", msg, task_id)
+            print(f"[AsyncOrch] {task_id}/{sid} Stream 发布 → L4", flush=True)
+        except Exception as e:
+            print(f"[AsyncOrch] Stream 发布失败: {e}", flush=True)
+
+        # Pub/Sub 回退
         if self.commander and self.commander.redis:
             try:
                 channel = f"lightingmetal:agent:{agent_name}"
-                msg = {
-                    "type": "task", "taskId": task_id, "sid": sid,
-                    "from": "orchestrator", "to": agent_name,
-                    "replyTo": "lightingmetal:agent:commander",
-                    "payload": {
-                        "action": action, "prompt": prompt,
-                        "task_id": task_id, "sid": sid,
-                    },
-                }
                 self.commander.redis.publish(
                     channel, json.dumps(msg, ensure_ascii=False, default=str)
                 )
-                result = await self._wait_neuron(task_id, sid, agent_name)
-                if result:
-                    return result
             except Exception:
                 pass
+
+        # 等待响应 (Stream 双通道)
+        result = await self._wait_neuron(task_id, sid, agent_name)
+        if result:
+            return result
 
         # HTTP 降级: aiohttp
         try:
@@ -266,11 +280,23 @@ class AsyncOrchestrator:
 
     async def _wait_neuron(self, task_id: str, sid: str,
                            agent_name: str) -> Optional[dict]:
-        """等待 Neuron 通过 Redis Pub/Sub 发布的结果"""
-        if not self.commander or not self.commander.redis:
-            return None
-
+        """Stream + Pub/Sub 双重等待 Neuron 响应"""
         start = time.time()
+
+        # Stream 响应通道
+        try:
+            from stream_bridge import StreamBridge
+            _bridge = StreamBridge(
+                redis_host="127.0.0.1", redis_port=6379,
+                redis_password=os.environ.get("REDIS_PASSWORD", ""))
+            _response_stream = "yaxiio:stream:L4_response"
+            _response_group = "commander-response"
+            _bridge.ensure_group(_response_stream, _response_group)
+        except Exception:
+            _bridge = None
+
+        # Pub/Sub 回退
+        pubsub = None
         try:
             import redis as _redis
             r = _redis.Redis(
@@ -280,29 +306,66 @@ class AsyncOrchestrator:
             )
             pubsub = r.pubsub()
             pubsub.subscribe("lightingmetal:agent:commander")
-
-            while time.time() - start < self.subtask_timeout:
-                msg = pubsub.get_message(timeout=1.0)
-                if not msg or msg.get("type") != "message":
-                    await asyncio.sleep(0.1)
-                    continue
-                try:
-                    data = json.loads(msg["data"])
-                except json.JSONDecodeError:
-                    continue
-                if (data.get("taskId") == task_id
-                        and data.get("sid") == sid
-                        and data.get("type") in ("response", "result")):
-                    payload = data.get("payload", {})
-                    elapsed = int((time.time() - start) * 1000)
-                    return {
-                        "ok": payload.get("status") in ("success", "completed"),
-                        "output": str(payload.get("thought", payload.get("result", "")))[:5000],
-                        "elapsed_ms": elapsed,
-                    }
-            pubsub.close()
         except Exception:
             pass
+
+        try:
+            while time.time() - start < self.subtask_timeout:
+                # 1. Stream 优先
+                if _bridge:
+                    try:
+                        results = _bridge.r.xreadgroup(
+                            groupname=_response_group,
+                            consumername=f"orchestrator-{task_id}",
+                            streams={_response_stream: ">"},
+                            block=500, count=10)
+                        if results:
+                            for stream_name, messages in results:
+                                for msg_id, fields in messages:
+                                    data = json.loads(fields.get("payload", "{}"))
+                                    _bridge.r.xack(_response_stream, _response_group, msg_id)
+                                    if (data.get("taskId") == task_id
+                                            and data.get("sid", data.get("payload", {}).get("sid")) == sid):
+                                        payload = data.get("payload", data)
+                                        elapsed = int((time.time() - start) * 1000)
+                                        return {
+                                            "ok": payload.get("status") in ("success", "completed"),
+                                            "output": str(payload.get("thought", payload.get("result", "")))[:5000],
+                                            "elapsed_ms": elapsed,
+                                        }
+                    except Exception:
+                        pass
+
+                # 2. Pub/Sub 回退
+                if pubsub:
+                    msg = pubsub.get_message(timeout=0.5)
+                    if msg and msg.get("type") == "message":
+                        try:
+                            data = json.loads(msg["data"])
+                        except json.JSONDecodeError:
+                            await asyncio.sleep(0.1)
+                            continue
+                        if (data.get("taskId") == task_id
+                                and data.get("sid") == sid
+                                and data.get("type") in ("response", "result")):
+                            payload = data.get("payload", {})
+                            elapsed = int((time.time() - start) * 1000)
+                            return {
+                                "ok": payload.get("status") in ("success", "completed"),
+                                "output": str(payload.get("thought", payload.get("result", "")))[:5000],
+                                "elapsed_ms": elapsed,
+                            }
+
+                await asyncio.sleep(0.1)
+
+        except Exception:
+            pass
+        finally:
+            if pubsub:
+                try:
+                    pubsub.close()
+                except Exception:
+                    pass
         return None
 
     # ═══════════════════════════════════════════════

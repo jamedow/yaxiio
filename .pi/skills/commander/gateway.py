@@ -398,7 +398,7 @@ class CommanderV3:
             "payload": task if isinstance(task, dict) else {"message": str(task)},
         }
 
-        # 发布到 Commander 处理频道 (yaxiio.py)
+        # 发布到 Commander — Stream 持久化 + Pub/Sub 快速通道
         try:
             import redis as redis_lib
             r = redis_lib.Redis(
@@ -407,7 +407,16 @@ class CommanderV3:
                 password=self.redis_password,
                 decode_responses=True,
             )
-            # 发布到 Commander 处理频道
+            # Stream 持久化（Commander 重启后不丢失）
+            try:
+                r.xadd("yaxiio:stream:task_incoming", {
+                    "task_id": task_data.get("taskId", ""),
+                    "payload": json.dumps(task_data, ensure_ascii=False),
+                    "timestamp": str(time.time()),
+                }, maxlen=10000)
+            except Exception:
+                pass
+            # Pub/Sub 快速通道
             r.publish("lightingmetal:agent:commander", json.dumps(task_data, ensure_ascii=False))
 
             await self._ws_send(ws, {

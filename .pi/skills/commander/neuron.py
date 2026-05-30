@@ -42,7 +42,7 @@ except ImportError:
 AGENT_NAME   = os.environ.get("AGENT_NAME", "neuron")
 AGENT_ROLE   = os.environ.get("AGENT_ROLE", AGENT_NAME)
 AGENT_SKILL  = os.environ.get("AGENT_SKILL", "")
-SKILL_DIR    = os.environ.get("SKILL_DIR", "/app/.pi/skills")
+SKILL_DIR    = os.environ.get("SKILL_DIR", "/opt/yaxiio/.pi/skills")
 CHANNEL      = f"lightingmetal:agent:{AGENT_NAME}"
 CONTROL_CH   = "lightingmetal:agent:commander"
 
@@ -185,6 +185,17 @@ class Neuron:
         if self.redis and new_state == "EXECUTING":
             self.redis.setex(f"agent:{self.name}:{os.environ.get('TASK_ID','')}:state", 3600, json.dumps({"progress": 0, "ts": time.time()}))
 
+    def _report_progress(self, task_id: str, pct: int, msg: str = ""):
+        """向 Commander 汇报执行进度 — 防止误判超时"""
+        if self.redis:
+            try:
+                self.redis.setex(f"agent:{self.name}:{task_id}:state", 3600,
+                    json.dumps({"progress": pct, "ts": time.time(), "msg": msg}))
+            except:
+                pass
+        if msg:
+            log(f"PROGRESS {task_id} {pct}%: {msg}")
+
     def _load_skill(self):
         """加载 Skill 作为 system prompt"""
         if not self.skill_name:
@@ -271,16 +282,16 @@ class Neuron:
 
     def think_and_act(self, task: dict) -> dict:
         trace_id = os.environ.get("TRACE_ID", task.get("taskId", ""))
-        """Core loop with state machine (v2)"""
+        """Core loop with state machine (v2) — 主动汇报进度"""
         self._set_state("EXECUTING")
         self.task_start_time = time.time()
-        """Core loop: receive task -> LLM think -> execute -> tool feedback -> respond"""
         task_id = task.get("taskId", f"auto-{int(time.time())}")
         payload = task.get("payload", {})
         action = payload.get("action", "unknown")
         reply_to = task.get("replyTo", CONTROL_CH)
 
-        self.log.info("think_and_act", "收到任务", trace_id=trace_id, action=action, task_id=task_id)  # was: log(f"RECV #{self.task_count+1} {task_id} ({action})")
+        self.log.info("think_and_act", "收到任务", trace_id=trace_id, action=action, task_id=task_id)
+        self._report_progress(task_id, 5, "开始分析任务")
 
         context = {
             "agent": self.name,
@@ -293,16 +304,19 @@ class Neuron:
         }
 
         # Step 1: LLM think
+        self._report_progress(task_id, 20, "LLM 思考中...")
         thought = self._llm_think(context)
+        self._report_progress(task_id, 50, "LLM 思考完成")
 
         # Step 2: Execute commands from thought
+        self._report_progress(task_id, 60, "执行命令...")
         result = self._execute(thought, context)
 
-        # Step 3: TOOL FEEDBACK LOOP - if commands ran, feed output back to LLM
+        # Step 3: TOOL FEEDBACK LOOP
         cmd_outputs = result.get("executed_commands", [])
         final_thought = thought
         if cmd_outputs:
-            # Feed tool results back to LLM for analysis
+            self._report_progress(task_id, 75, "工具反馈分析中...")
             feedback_context = dict(context)
             feedback_context["tool_results"] = cmd_outputs
             feedback_context["previous_thought"] = str(thought)[:500]
@@ -310,7 +324,6 @@ class Neuron:
                 analysis = self._llm_analyze_results(feedback_context)
                 if analysis and len(analysis) > 20:
                     final_thought = analysis
-                    # Re-execute any new commands from analysis
                     result2 = self._execute(analysis, context)
                     if result2.get("executed_commands"):
                         result["executed_commands"].extend(result2["executed_commands"])

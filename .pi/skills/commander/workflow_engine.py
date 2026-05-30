@@ -1075,6 +1075,9 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
 
         print(f"[WF] 等待 {agent_name} 响应 (task={task_id}, timeout={timeout}s)...", flush=True)
         start = time.time()
+        last_progress = 0
+        last_progress_ts = time.time()
+        progress_stall_timeout = 180  # 进度停滞超过 180s 才算真超时
 
         # Stream 响应通道
         try:
@@ -1097,6 +1100,26 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
 
         try:
             while time.time() - start < timeout:
+                # 0. 心跳检查: 神经元还在跑就延长超时
+                try:
+                    raw = self.commander.redis.client.get(f"agent:{agent_name}:{task_id}:state")
+                    if raw:
+                        state = json.loads(raw)
+                        pct = state.get("progress", 0)
+                        ts = state.get("ts", 0)
+                        if pct > last_progress:
+                            last_progress = pct
+                            last_progress_ts = time.time()
+                            # 有进展 → 延长总超时
+                            if timeout < 600:
+                                timeout = min(600, timeout + 60)
+                                print(f"[WF] {agent_name} 进度 {pct}%, 延长超时至 {timeout}s", flush=True)
+                        elif time.time() - last_progress_ts > progress_stall_timeout:
+                            print(f"[WF] {agent_name} 进度停滞 {progress_stall_timeout}s, 判定超时", flush=True)
+                            break
+                except Exception:
+                    pass
+
                 # 1. 先检查 Stream
                 if _bridge:
                     try:

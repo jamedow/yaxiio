@@ -280,8 +280,10 @@ class AsyncOrchestrator:
 
     async def _wait_neuron(self, task_id: str, sid: str,
                            agent_name: str) -> Optional[dict]:
-        """Stream + Pub/Sub 双重等待 Neuron 响应"""
+        """Stream + Pub/Sub 双重等待 Neuron 响应 — 含心跳进度检查"""
         start = time.time()
+        last_progress = 0
+        last_progress_ts = time.time()
 
         # Stream 响应通道
         try:
@@ -309,8 +311,28 @@ class AsyncOrchestrator:
         except Exception:
             pass
 
+        # 动态超时: 神经元有进展就延长
+        dynamic_timeout = self.subtask_timeout
+
         try:
-            while time.time() - start < self.subtask_timeout:
+            while time.time() - start < dynamic_timeout:
+                # 0. 心跳检查
+                try:
+                    if r:
+                        raw = r.get(f"agent:{agent_name}:{task_id}:state")
+                        if raw:
+                            state = json.loads(raw)
+                            pct = state.get("progress", 0)
+                            if pct > last_progress:
+                                last_progress = pct
+                                last_progress_ts = time.time()
+                                if dynamic_timeout < 600:
+                                    dynamic_timeout = min(600, dynamic_timeout + 60)
+                            elif time.time() - last_progress_ts > 180:
+                                break  # 进度停滞 > 180s
+                except Exception:
+                    pass
+
                 # 1. Stream 优先
                 if _bridge:
                     try:

@@ -830,42 +830,53 @@ class Commander:
         self.log.info("run", "宪法激活", whitelist_ops=6, arsenal_tools=12)
         self.log.info("run", "订阅频道", channels="yaxiio:agent:commander,lightingmetal:agent:commander")
 
+        # ── Redis Stream 消费者组（替代 Pub/Sub）──
+        STREAM_KEY = "yaxiio:task_stream"
+        GROUP_NAME = "commander-workers"
+        CONSUMER_NAME = f"commander-{os.getpid()}"
+        
+        try:
+            self.redis.client.xgroup_create(STREAM_KEY, GROUP_NAME, id="0", mkstream=True)
+        except Exception:
+            pass  # Group already exists
+        
         cycle = 0
         while self.running:
-            pubsub = None
             try:
-                try: self.redis.client.ping()
-                except: self.redis = RedisClient()
-
-                pubsub = self.redis.client.pubsub()
-                pubsub.subscribe("yaxiio:agent:commander", "lightingmetal:agent:commander")
-                deadline = time.time() + 55
-
-                while time.time() < deadline:
-                    msg = pubsub.get_message(timeout=2.0)
-                    if msg and msg["type"] == "message":
-                        try:
-                            raw = msg["data"]
-                            if isinstance(raw, bytes): raw = raw.decode("utf-8")
-                            data = json.loads(raw)
-                            msg_type = data.get("type", "")
-                            if msg_type == "task":
-                                self.handle_task(data)
-                            elif msg_type == "response":
-                                # Neuron 异步回调 → 继续流水线
-                                tid = data.get("taskId", "")
-                                if self.redis.client.exists(f"yaxiio:pending:{tid}"):
-                                    self._resume_pending_task(tid, data)
-                        except json.JSONDecodeError: pass
-                        except Exception as e:
-                            print(f"[雅溪] Task error: {e}", flush=True)
-
+                # 读取 pending + 新消息，阻塞最多 5 秒
+                results = self.redis.client.xreadgroup(
+                    GROUP_NAME, CONSUMER_NAME,
+                    {STREAM_KEY: ">"},  # ">" = 只读新消息
+                    count=10, block=5000
+                )
+                
+                if results:
+                    for stream_name, messages in results:
+                        for msg_id, fields in messages:
+                            try:
+                                raw = fields.get(b"data", fields.get("data", "{}"))
+                                if isinstance(raw, bytes): raw = raw.decode("utf-8")
+                                data = json.loads(raw)
+                                msg_type = data.get("type", "")
+                                if msg_type == "task":
+                                    self.handle_task(data)
+                                elif msg_type == "response":
+                                    tid = data.get("taskId", "")
+                                    if self.redis.client.exists(f"yaxiio:pending:{tid}"):
+                                        self._resume_pending_task(tid, data)
+                            except json.JSONDecodeError:
+                                pass
+                            except Exception as e:
+                                print(f"[雅溪] Task error: {e}", flush=True)
+                            # ACK 消息
+                            self.redis.client.xack(STREAM_KEY, GROUP_NAME, msg_id)
+                
                 cycle += 1
                 if cycle % 10 == 0:
-                    stats = self.pool.stats()
+                    stats = self.pool.stats() if self.pool else {}
                     cstats = self.constitution.stats()
                     print(f"[雅溪] Cycle {cycle}, tasks: {self.task_count}, "
-                          f"q={stats['queue_depth']}/{stats['max_queue']} "
+                          f"q={stats.get('queue_depth',0)}/{stats.get('max_queue',0)} "
                           f"⚖️cmp={cstats['compliance_rate']:.0%} "
                           f"viol={cstats['violations']}", flush=True)
 

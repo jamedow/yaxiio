@@ -1,3 +1,5 @@
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 """Commander 流程引擎 v2.1 — 多子任务编排
 ===========================================
   L1 感知: MCP关键词 + LLM深度理解 + 动作优先覆盖

@@ -107,7 +107,7 @@ class ResourcePool:
         pu = primary_url or os.environ.get("LLM_BASE_URL", DEFAULT_BASE_URL)
 
         if pk:
-            self._redis.set("yaxiio:pool:keys:primary", json.dumps({
+            if hasattr(self._redis, "set"): self._redis.set("yaxiio:pool:keys:primary", json.dumps({
                 "key": pk, "base_url": pu, "model": DEFAULT_MODEL,
                 "updated_at": time.time(),
             }))
@@ -115,7 +115,7 @@ class ResourcePool:
             self._primary_url = pu
 
         if fallback_key:
-            self._redis.set("yaxiio:pool:keys:fallback", json.dumps({
+            if hasattr(self._redis, "set"): self._redis.set("yaxiio:pool:keys:fallback", json.dumps({
                 "key": fallback_key, "base_url": fallback_url or DEFAULT_BASE_URL,
             }))
 
@@ -250,7 +250,7 @@ class ResourcePool:
         if thinking:    cfg["thinking"] = thinking
         if max_tokens:  cfg["max_tokens"] = max_tokens
         cfg["updated_at"] = time.time()
-        self._redis.set(f"yaxiio:pool:agent:{agent_name}",
+        if hasattr(self._redis, "set"): self._redis.set(f"yaxiio:pool:agent:{agent_name}",
                         json.dumps(cfg, ensure_ascii=False))
         # 清空缓存
         self._agent_cache.clear()
@@ -259,7 +259,7 @@ class ResourcePool:
         """运行时更新主 API Key（立刻生效）。"""
         if not self._redis:
             return
-        self._redis.set("yaxiio:pool:keys:primary", json.dumps({
+        if hasattr(self._redis, "set"): self._redis.set("yaxiio:pool:keys:primary", json.dumps({
             "key": api_key, "base_url": base_url or DEFAULT_BASE_URL,
             "updated_at": time.time(),
         }))

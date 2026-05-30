@@ -552,7 +552,7 @@ class Commander:
     def _recover_inflight(self):
         """断点恢复: 重启后扫描未完成任务，重新调度"""
         from modules.shared.foolproof import safe_default, validate_in_range
-from task_state_machine import TaskStateMachine
+        from task_state_machine import TaskStateMachine
         sm = TaskStateMachine()
         inflight = sm.list_inflight()
         if not inflight:
@@ -754,19 +754,38 @@ from task_state_machine import TaskStateMachine
     # ═══════════════════════════════════════════════
     # LLM 客户端
     # ═══════════════════════════════════════════════
-    def _get_llm(self, task_type: str = "default"):
-        """获取 LLM 客户端, 按任务类型选择模型"""
+    def _get_llm(self, task_type: str = "default", task_desc: str = ""):
+        """获取 LLM 客户端 + 防呆: 失败时自动切换备选模型"""
         try:
             sys.path.insert(0, "/app/.pi/skills/commander")
             from agent_lifecycle_v2 import LLMAdapter
-            from model_router_v2 import ModelConfig
+            
+            # Try IntelligentModelRouter first
+            if hasattr(self, 'workflow') and self.workflow and                hasattr(self.workflow, 'model_router_v2') and self.workflow.model_router_v2:
+                router = self.workflow.model_router_v2
+                task_info = {"action": task_type, "description": task_desc or task_type}
+                cfg = router.select(task_info)
+                model = cfg.get("model", task_type)
+                thinking = cfg.get("thinking", "medium")
+                print("[Commander] model router: {} (thinking={}, score={})".format(
+                    model, thinking, cfg.get("score", 0)), flush=True)
+            else:
+                model = task_type
+                thinking = "medium"
+            
             key = self.redis.get("yaxiio:config:llm_api_key") or os.environ.get("DEEPSEEK_API_KEY","")
-            mc = ModelConfig(self.redis)
-            cfg = mc.get_commander_config(task_type)
             return LLMAdapter(api_key=key, base_url="https://api.deepseek.com/v1",
-                            model=cfg["model"], thinking=cfg.get("thinking", "medium"))
-        except:
-            return None
+                            model=model, thinking=thinking)
+        except Exception as e:
+            # 防呆: 降级到默认模型
+            print(f"[Commander] LLM init failed ({e}), fallback to default", flush=True)
+            try:
+                from agent_lifecycle_v2 import LLMAdapter
+                key = self.redis.get("yaxiio:config:llm_api_key") or os.environ.get("DEEPSEEK_API_KEY","")
+                return LLMAdapter(api_key=key, base_url="https://api.deepseek.com/v1",
+                                model="deepseek-chat", thinking="medium")
+            except:
+                return None
 
     # ═══════════════════════════════════════════════
     # 主循环

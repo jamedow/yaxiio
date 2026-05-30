@@ -767,12 +767,10 @@ class WorkflowEngine:
 
     def _check_and_heal(self, task_id: str, subtasks: list, results: dict):
         """故障检测 — 委托给 workflow_utils_extracted"""
-        from workflow_utils_extracted import check_and_heal
         check_and_heal(task_id, subtasks, results, self.commander)
 
     def _cleanup_task(self, task_id: str, subtasks: list, final_score: int):
         """Post-task cleanup — delegate to workflow_utils_extracted"""
-        from workflow_utils_extracted import cleanup_task
         cleanup_task(self, task_id, subtasks, final_score)
 
     _current_intent = "general"
@@ -891,7 +889,12 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
                 content_text = content_text.split("```")[1]
                 if content_text.startswith("json"): content_text = content_text[4:]
             data = json.loads(content_text.strip())
-            result = data.get("subtasks", data if isinstance(data, list) else [])
+            if isinstance(data, list):
+                result = data
+            elif isinstance(data, dict):
+                result = data.get("subtasks", [])
+            else:
+                result = []
             # Normalize
             normalized = []
             for i, item in enumerate(result):
@@ -1045,7 +1048,6 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         # FALLBACK: legacy scoring
         return self._legacy_l5_score(task_id, action, plan, l4, state, output_text, agent_name)
     def _legacy_l5_score(self, task_id, action, plan, l4, state, output_text, agent_name):
-        from workflow_utils_extracted import legacy_l5_score
         return legacy_l5_score(self, task_id, action, plan, l4, state, output_text, agent_name)
 
     def _extract_output_text(self, l4: dict) -> str:
@@ -1070,7 +1072,6 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
     def _build_plan(self, primary_intent: str, action: str,
                     payload: dict, arsenal_tools: list) -> dict:
         """构建计划 — 委托给 workflow_utils_extracted"""
-        from workflow_utils_extracted import build_plan
         return build_plan(primary_intent, action, payload, arsenal_tools, INTENT_TOOL_MAP)
 
 

@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from maintenance_runner import MaintenanceRunner
 from session_manager import SessionManager, SessionBridge
-# Phase 2: CommanderV2 替换为 MaintenanceRunner (yaxiio.py Commander 是唯一任务处理器)
+# Phase 2: 旧 CommanderV2 已移除，Gateway 只做结果转发 (yaxiio.py Commander 是唯一任务处理器，Gateway 只做 WS/HTTP 代理)
 
 # 可选 WebSocket 库
 try:
@@ -168,8 +168,8 @@ class CommanderV3:
         # 4. 启动定时任务
         self._tasks.add(asyncio.create_task(self._run_periodic_tasks()))
 
-        # 5. 启动结果转发循环 (yaxiio.py Commander 是唯一任务处理器)
-        self._tasks.add(asyncio.create_task(self._run_commander_v2_loop()))
+        # 5. 启动结果转发循环 (只订阅 agent:result，不处理任务) (yaxiio.py Commander 是唯一任务处理器，Gateway 只做 WS/HTTP 代理)
+        self._tasks.add(asyncio.create_task(self._run_result_forwarder()))
 
         self._running = True
         print(f"[CommanderV3] ✅ 全部服务就绪 (WebSocket:{self.ws_port}, HTTP:{self.http_port})")
@@ -680,7 +680,7 @@ class CommanderV3:
     # 结果转发循环
     # ═══════════════════════════════════════════════════════════
 
-    async def _run_commander_v2_loop(self):
+    async def _run_result_forwarder(self):
         """在异步上下文中运行结果转发循环。yaxiio.py Commander 是唯一的任务处理器。
 
         拦截 agent:result 频道消息，通过 SessionManager 推送给 WebSocket 客户端。

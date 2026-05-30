@@ -370,6 +370,13 @@ class Neuron:
             }
         }
 
+        # Stream 发布响应（优先，消息持久化不丢失）
+        if self.stream:
+            try:
+                self.stream.publish_task('L4_response', response, task_id)
+            except Exception:
+                pass
+        # Pub/Sub 回退
         if reply_to:
             self._publish(reply_to, response)
 

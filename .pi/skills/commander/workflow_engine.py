@@ -872,12 +872,21 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         prompt += "Task: " + task_desc[:400]
 
         try:
-            resp = llm.chat.completions.create(
-                model="deepseek-chat",
-                messages=[{"role":"user","content":prompt}],
-                temperature=0.3, max_tokens=500,
-            )
-            content_text = resp.choices[0].message.content
+            # Compatible with both OpenAI client and LLMAdapter
+            if hasattr(llm, "chat") and callable(llm.chat):
+                import asyncio
+                loop = asyncio.new_event_loop()
+                content_text = loop.run_until_complete(llm.chat(prompt))
+                loop.close()
+            elif hasattr(llm, "chat") and hasattr(llm.chat, "completions"):
+                resp = llm.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=[{"role":"user","content":prompt}],
+                    temperature=0.3, max_tokens=500,
+                )
+                content_text = resp.choices[0].message.content
+            else:
+                raise RuntimeError("LLM client has no chat method")
             if "```" in content_text:
                 content_text = content_text.split("```")[1]
                 if content_text.startswith("json"): content_text = content_text[4:]

@@ -26,7 +26,7 @@ class DSPyOptimizer:
             if not api_key:
                 try:
                     import redis as _r
-                    r = _r.Redis(host="127.0.0.1", port=6379,
+                    r = _r.Redis(protocol=2, host="127.0.0.1", port=6379,
                                 password=os.environ.get("REDIS_PASSWORD",""),
                                 decode_responses=True, socket_connect_timeout=3)
                     api_key = r.get("yaxiio:config:llm_api_key") or ""

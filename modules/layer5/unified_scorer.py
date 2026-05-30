@@ -64,6 +64,10 @@ class UnifiedScorer:
     # 主入口
     # ═══════════════════════════════════════════════
 
+    def score_with_fallback(self, primary_fn, fallback_fn, label="评分"):
+        """防呆: 主评分路径失败时自动降级"""
+        return try_primary_fallback(primary_fn, fallback_fn, label)
+
     def score(self,
               task: dict,
               result: dict,
@@ -251,6 +255,7 @@ class UnifiedScorer:
         """LLM-as-Judge 深度评分"""
         try:
             from modules.layer4.llm_judge import LLMJudge
+from modules.shared.foolproof import try_primary_fallback, QUALITY_PRESETS
             if not self._llm_judge:
                 self._llm_judge = LLMJudge(
                     llm_client=self._get_llm_client(),

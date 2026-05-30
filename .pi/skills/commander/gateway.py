@@ -376,7 +376,7 @@ class CommanderV3:
             await self._ws_send(ws, {
                 "type": "task_error",
                 "correlation_id": correlation_id,
-                "error": "缺少 task 参数",
+                "error": "请提供 task 参数", "advice": "示例: {\"task\": \"翻译 100 条产品描述到阿拉伯语\"}",
             })
             return
 
@@ -523,14 +523,14 @@ class CommanderV3:
         async def api_queue_stats(request):
             session_token = request.query.get("session_token", "")
             if not session_token:
-                return web.json_response({"error": "缺少 session_token"}, status=400)
+                return web.json_response({"error": "请提供 session_token", "advice": "在请求头或 URL 参数中携带 session_token。新用户请先调用 /api/register 获取 token。"}, status=400)
             result = await self.session_mgr.get_queue_stats(session_token)
             return web.json_response(result)
 
         async def api_history(request):
             session_token = request.query.get("session_token", "")
             if not session_token:
-                return web.json_response({"error": "缺少 session_token"}, status=400)
+                return web.json_response({"error": "请提供 session_token", "advice": "在请求头或 URL 参数中携带 session_token。新用户请先调用 /api/register 获取 token。"}, status=400)
             offset = int(request.query.get("offset", 0))
             limit = int(request.query.get("limit", 50))
             result = await self.session_mgr.get_history(
@@ -573,7 +573,7 @@ class CommanderV3:
         async def trace_logs(request):
             trace_id = request.match_info.get("trace_id", "")
             if not trace_id:
-                return web.json_response({"error": "trace_id required"}, status=400)
+                return web.json_response({"error": "请提供 trace_id", "advice": "trace_id 用于追踪任务全链路日志。可在任务提交时从 Commander 响应中获取。"}, status=400)
             try:
                 from trace_logger import query_trace_logs
                 logs = query_trace_logs(trace_id)

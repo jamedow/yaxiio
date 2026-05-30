@@ -53,7 +53,8 @@ class AsyncOrchestrator:
     def __init__(self, commander=None, max_concurrent: int = None,
                  total_timeout: float = None, subtask_timeout: float = None):
         self.commander = commander
-        self.max_concurrent = max_concurrent or int(
+        # 防呆: 限制最大并发数在安全范围内
+        _raw = max_concurrent or int(
             os.environ.get("YAXIIO_MAX_CONCURRENT", "10"))
         self.total_timeout = total_timeout or float(
             os.environ.get("YAXIIO_TASK_TIMEOUT", "600"))

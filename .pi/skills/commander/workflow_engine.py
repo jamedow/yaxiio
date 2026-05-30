@@ -127,6 +127,47 @@ class WorkflowEngine:
             vector_store=_fw_vs
         )
 
+    def _agent_skill_map(self) -> dict:
+        """Dynamic agent→skill mapping from Redis capability cards.
+        Falls back to hardcoded map if Redis unavailable."""
+        if getattr(self, "_cached_skill_map", None):
+            return self._cached_skill_map
+
+        _map = {}
+        try:
+            if self.commander and self.commander.redis:
+                agents = self.commander.redis.smembers("agent:registry") or []
+                for name in agents:
+                    card_raw = self.commander.redis.get(f"agent:card:{name}")
+                    if card_raw:
+                        card = json.loads(card_raw)
+                        skills = card.get("skills", [])
+                        _map[name] = skills[0] if skills else ""
+        except Exception:
+            pass
+
+        # Merge with hardcoded fallbacks for agents not yet in Redis
+        _fallback = {
+            "UI/UX设计师": "ui-ux-designer",
+            "品牌策略师": "strategic-partner",
+            "前端工程师": "infrastructure-engineer",
+            "翻译官": "translate-engine",
+            "审计官": "audit-engine",
+            "售前经理": "product-search",
+            "商务经理": "product-search",
+            "通用Agent": "",
+            "修复Agent": "backend-engineer",
+            "系统医生": "system-doctor",
+            "LM内容工程师": "lm-content-engineer",
+        }
+        for k, v in _fallback.items():
+            if k not in _map:
+                _map[k] = v
+
+        self._cached_skill_map = _map
+        return _map
+
+
 
     def process(self, task_id: str, payload: dict):
         if MCP_LAYERS_ENABLED.get("L1"):
@@ -556,7 +597,16 @@ class WorkflowEngine:
             return {"ok": False, "error": f"unknown tool: {tool_name}", "agent": "_tool_"}
 
         # Agent type: dispatch via L4 MCP
+        # Agent credit-aware selection: prefer higher-scored agents
         agent_skill = self._agent_skill_map().get(agent_name, "")
+        try:
+            if hasattr(self, "flywheel") and self.flywheel:
+                _credit = self.flywheel.get_agent_credit(agent_name)
+                if _credit < 5.0:
+                    print("[WF] {} agent {} credit={:.1f} (<5), may degrade quality".format(
+                        task_id, agent_name, _credit), flush=True)
+        except Exception:
+            pass
         prompt = subtask.get("prompt", str(payload.get("task", ""))[:500])
         self.sm.subtask_start(task_id, sid, agent_name, subtask["action"], prompt)
         
@@ -854,7 +904,7 @@ class WorkflowEngine:
         if not llm:
             return [{"id":"s1","action":"execute","agent":"审计官","depends":[],"prompt":task_desc[:300]}]
 
-                prompt = """Decompose this task into 2-5 subtasks. Output JSON array only.
+        prompt = """Decompose this task into 2-5 subtasks. Output JSON array only.
 
 Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(translate), UI/UX设计师(design), 前端工程师(frontend), LM内容工程师(content engineering)
 
@@ -1174,18 +1224,36 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         return {"tool": None, "agent": "审计官", "desc": f"通用:{action}",
                 "match_type": "fallback", "intent": primary_intent, "command": f"echo 'task'"}
 
-    def _get_llm(self, task_type: str = "default"):
-        # Phase 5: ModelRouter — 按任务类型选模型
+    def _get_llm(self, task_type: str = "default", task_desc: str = ""):
+        """LLM client with IntelligentModelRouter + auto-fallback"""
         if self.commander:
             try:
-                from modules.layer2 import ModelRouter
-                router = ModelRouter()
-                task_info = {"action": task_type, "description": task_type}
-                cfg = router.select_model(task_info)
-                return self.commander._get_llm(cfg.get("model", task_type))
-            except:
-                try: return self.commander._get_llm()
-                except: pass
+                # Use IntelligentModelRouter (cost x latency x capability)
+                if hasattr(self, "model_router_v2") and self.model_router_v2:
+                    task_info = {"action": task_type, "description": task_desc or task_type}
+                    cfg = self.model_router_v2.select(task_info)
+                    model = cfg.get("model", task_type)
+                    thinking = cfg.get("thinking", "medium")
+                    print("[WF] model router: {} (thinking={}, score={})".format(
+                        model, thinking, cfg.get("score", 0)), flush=True)
+                else:
+                    model = task_type
+                    thinking = "medium"
+                return self.commander._get_llm(model, thinking)
+            except Exception as _e:
+                # Auto-fallback to next provider
+                try:
+                    if hasattr(self, "model_router_v2") and self.model_router_v2:
+                        fb = self.model_router_v2.fallback(model if "model" in dir() else task_type)
+                        if fb:
+                            print("[WF] model fallback to: {}".format(fb.get("model","?")), flush=True)
+                            return self.commander._get_llm(fb["model"], "off")
+                except Exception:
+                    pass
+                try:
+                    return self.commander._get_llm()
+                except Exception:
+                    pass
         return None
 
     def _call_llm(self, prompt: str, timeout: float = 30.0) -> str:

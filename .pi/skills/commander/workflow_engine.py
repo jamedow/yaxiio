@@ -191,8 +191,21 @@ class WorkflowEngine:
                     payload["_suggested_concurrent"] = recs["max_concurrent"]
                 if recs.get("chunk_size"):
                     payload["_chunk_size"] = recs["chunk_size"]
+
+                # ── 预热门控: 大任务先小样本试跑找最优策略 ──
+                from warmup_gate import WarmupGate
+                gate = WarmupGate(self)
+                if gate.should_warmup(payload["_recon"]):
+                    warmup_result = gate.warmup(task_id, payload, payload["_recon"])
+                    payload["_warmup"] = warmup_result.to_dict()
+                    if warmup_result.passed and warmup_result.best_strategy:
+                        # 把最优策略注入 payload
+                        payload = warmup_result.best_strategy.apply_to_payload(payload)
+                        print(f"[WF] {task_id} 预热通过, 策略: {warmup_result.best_strategy.to_dict()}", flush=True)
+                    else:
+                        print(f"[WF] {task_id} 预热未通过, 仍继续执行 (score={warmup_result.sample_score})", flush=True)
             except Exception as e:
-                print(f"[WF] {task_id} 侦察异常 ({e}), 跳过", flush=True)
+                print(f"[WF] {task_id} 预热异常 ({e}), 回退正常流程", flush=True)
 
         intent_info = INTENT_TOOL_MAP.get(action_clean) or INTENT_TOOL_MAP.get(action, {})
         is_complex = intent_info.get("complex", False) or len(str(payload.get("task", ""))) > 150 or any(n in str(payload.get("task","")).lower() for n in ["split","batch","parallel","entries","pending"])

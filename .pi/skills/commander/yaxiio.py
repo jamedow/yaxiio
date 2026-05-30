@@ -895,6 +895,15 @@ class Commander:
 
         self.pool = BoundedThreadPool(max_workers=5, max_queue=20)
         self.workflow = WorkflowEngine(commander=self)
+
+        # ── GC 资源回收 ──
+        try:
+            from yaxiio_gc import YaxiioGC
+            self.gc = YaxiioGC(self.redis.client)
+            self.gc.start()
+        except Exception:
+            self.gc = None
+            print("[雅溪] GC 启动失败", flush=True)
         self.task_count = 0
         async_executor.start()
 

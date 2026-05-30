@@ -160,6 +160,8 @@ class Neuron:
         self.state_since = time.time()
         self.retry_count = 0
         self.task_start_time = 0
+        self.task_timeout = 300
+        self.max_retries = 3
         if self.card:
             self.task_timeout = self.card.get("lifecycle", {}).get("task_timeout", 300)
             self.max_retries = self.card.get("lifecycle", {}).get("max_retries", 3)

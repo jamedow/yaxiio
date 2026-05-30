@@ -55,7 +55,7 @@ class BoundedThreadPool:
             if self.pending >= self.max_queue:
                 self.rejected += 1
                 return False
-            self._lock.acquire(); self.pending += 1; self._lock.release()
+            self.pending += 1
 
         def _wrapper():
             try:
@@ -260,6 +260,8 @@ class Commander:
         Commander 不等待——回到主循环继续处理其他任务，
         Neuron 完成后通过 Pub/Sub 回传结果触发后续流程。
         """
+        import uuid
+        trace_id = data.get("trace_id") or str(uuid.uuid4())[:12]
         def _run():
             try:
                 self.log.info("_run_delegated", "路由到流水线", trace_id=trace_id, action=action)
@@ -844,13 +846,16 @@ class Commander:
                 while time.time() < deadline:
                     msg = pubsub.get_message(timeout=2.0)
                     if msg and msg["type"] == "message":
+                        self.redis.client.setex("yaxiio:debug:last_msg", 60, str(time.time()))
                         try:
                             raw = msg["data"]
                             if isinstance(raw, bytes): raw = raw.decode("utf-8")
                             data = json.loads(raw)
                             msg_type = data.get("type", "")
                             if msg_type == "task":
+                                self.redis.client.setex("yaxiio:debug:last_task", 60, json.dumps({"tid": data.get("taskId","?"), "action": data.get("payload",{}).get("action","?"), "ts": time.time()}))
                                 self.handle_task(data)
+                                self.redis.client.setex("yaxiio:debug:task_done", 60, json.dumps({"tid": data.get("taskId","?"), "ts": time.time()}))
                             elif msg_type == "response":
                                 # Neuron 异步回调 → 继续流水线
                                 tid = data.get("taskId", "")
@@ -860,6 +865,7 @@ class Commander:
                         except Exception as e:
                             print(f"[雅溪] Task error: {e}", flush=True)
 
+                self.redis.client.setex("yaxiio:debug:cycle", 120, json.dumps({"cycle": cycle, "ts": time.time(), "tasks": self.task_count}))
                 cycle += 1
                 if cycle % 10 == 0:
                     stats = self.pool.stats()

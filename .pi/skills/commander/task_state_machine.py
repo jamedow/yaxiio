@@ -69,11 +69,14 @@ def _now() -> float:
 class TaskStateMachine:
     """统一任务状态机 — 五层里程碑 + 事件溯源"""
 
-    def __init__(self, redis_host="127.0.0.1", redis_port=6379, redis_pass=None):
-        if redis_pass is None:
-            redis_pass = os.environ.get("REDIS_PASSWORD", "")
-        self.r = redis.Redis(host=redis_host, protocol=2, port=redis_port,
-                             password=redis_pass, decode_responses=True)
+    def __init__(self, redis_host="127.0.0.1", redis_port=6379, redis_pass=None, redis_client=None):
+        if redis_client is not None:
+            self.r = redis_client.client if hasattr(redis_client, "client") else redis_client
+        else:
+            if redis_pass is None:
+                redis_pass = os.environ.get("REDIS_PASSWORD", "")
+            self.r = redis.Redis(host=redis_host, protocol=2, port=redis_port,
+                                 password=redis_pass, decode_responses=True)
 
     # ═══════════════════════════════════════════════
     # 任务生命周期

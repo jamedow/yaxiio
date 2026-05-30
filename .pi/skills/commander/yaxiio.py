@@ -847,7 +847,7 @@ class Commander:
                 results = self.redis.client.xreadgroup(
                     GROUP_NAME, CONSUMER_NAME,
                     {STREAM_KEY: ">"},  # ">" = 只读新消息
-                    count=10, block=5000
+                    count=10, block=1000
                 )
                 
                 if results:
@@ -883,9 +883,7 @@ class Commander:
             except Exception as e:
                 print(f"[雅溪] Cycle error: {e}", flush=True)
                 time.sleep(3)
-            finally:
-                try: pubsub.close()
-                except: pass
+
 
 
 def main():

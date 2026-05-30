@@ -71,7 +71,7 @@ class WorkflowEngine:
 
     def __init__(self, commander=None):
         self.commander = commander
-        self.sm = TaskStateMachine()  # 状态机
+        self.sm = TaskStateMachine(redis_client=commander.redis if commander else None)
         self.log = TraceLogger("WorkflowEngine")
         self.active: dict = {}
         self._lock = threading.Lock()

@@ -422,7 +422,7 @@ class WorkflowEngine:
             return {"mcp_routed": True, "layer": "L3", "phase": "not_implemented"}
 
         # ── Async path (feature-flagged) ──
-        _use_async = os.environ.get("YAXIIO_ASYNC_ORCHESTRATOR", "false").lower() == "true"
+        _use_async = os.environ.get("YAXIIO_ASYNC_ORCHESTRATOR", "true").lower() == "true"
         if _use_async and hasattr(self, "async_orch") and self.async_orch:
             try:
                 import asyncio
@@ -583,6 +583,18 @@ class WorkflowEngine:
         self._current_intent = action_clean
         available = list(self._agent_skill_map().keys())
 
+        # Semantic Intent Routing (replaces INTENT_TOOL_MAP)
+        _primary_agent = None
+        try:
+            if hasattr(self, "intent_router") and self.intent_router:
+                _route = self.intent_router.route(task_desc)
+                if _route and _route.get("confidence", 0) > 0.4:
+                    _primary_agent = _route.get("primary_agent")
+                    print("[WF] {} semantic route: {} (conf={:.2f})".format(
+                        task_id, _primary_agent, _route.get("confidence", 0)), flush=True)
+        except Exception:
+            pass  # semantic router unavailable, fallback to INTENT_TOOL_MAP
+
         # L0: Retrieve past experiences for this intent
         past_exp = self.l0._retrieve_experiences(action_clean, available[:5])
         experience_context = ""
@@ -706,34 +718,53 @@ class WorkflowEngine:
                 )
 
     def _cleanup_task(self, task_id: str, subtasks: list, final_score: int):
-        """Post-task cleanup: save L0 experience, merge template, destroy memory"""
+        """Post-task cleanup: ExperienceFlywheel + destroy memory"""
         agents_used = set(s["agent"] for s in subtasks)
-        # Cleanup workflow snapshot
-        self.snapshot.cleanup(task_id)
+        action = self._current_intent or "general"
+
+        # ── Primary: ExperienceFlywheel ──
+        try:
+            from modules.layer5.experience_flywheel import ExperienceFlywheel
+            from modules.layer1.vector_store_chroma import ChromaVectorStore
+            _vs = ChromaVectorStore()
+            flywheel = ExperienceFlywheel(
+                redis_client=self.commander.redis,
+                vector_store=_vs
+            )
+            flywheel.save_experience(
+                task_id=task_id,
+                task_description=str(self._current_intent or ""),
+                subtasks=subtasks,
+                final_score=float(final_score),
+                l5_signals={},
+                agents_used=agents_used,
+                intent=action,
+            )
+            print(f"[WF] {task_id} flywheel: {len(agents_used)} agents, score={final_score}", flush=True)
+        except Exception as _e:
+            print(f"[WF] {task_id} flywheel failed ({_e}), fallback to l0", flush=True)
+            # Fallback to legacy L0 storage
+            try:
+                import redis as _r
+                _rd = _r.Redis(protocol=2, host="127.0.0.1", port=6379,
+                             password=os.environ.get("REDIS_PASSWORD", ""),
+                             decode_responses=True)
+                self.l0._save_experience(task_id, subtasks, final_score, agents_used, _rd)
+            except Exception:
+                pass
+
+        # ── Cleanup: destroy task memory ──
         try:
             import redis as _r
-            r = _r.Redis(protocol=2, host="127.0.0.1", port=6379, password=os.environ.get("REDIS_PASSWORD", ""), decode_responses=True)
-
-            # === L0 Memory: Save structured experience ===
-            self.l0._save_experience(task_id, subtasks, final_score, agents_used, r)
-
+            _rd = _r.Redis(protocol=2, host="127.0.0.1", port=6379,
+                         password=os.environ.get("REDIS_PASSWORD", ""),
+                         decode_responses=True)
             for agent in agents_used:
-                r.delete(f"agent:{agent}:{task_id}:memory")
-                if final_score >= 7:
-                    template_key = f"agent:{agent}:template"
-                    existing = r.get(template_key)
-                    if existing:
-                        try:
-                            tmpl = json.loads(existing)
-                            tmpl["last_score"] = final_score
-                            tmpl["last_task"] = task_id
-                            tmpl["updated_at"] = time.time()
-                            r.setex(template_key, 86400 * 30, json.dumps(tmpl, ensure_ascii=False))
-                        except:
-                            pass
-            print(f"[WF] {task_id} cleanup: {len(agents_used)} agents, score={final_score}", flush=True)
-        except Exception as e:
-            print(f"[WF] {task_id} cleanup error: {e}", flush=True)
+                _rd.delete(f"agent:{agent}:{task_id}:memory")
+            # Cleanup workflow snapshot
+            self.snapshot.cleanup(task_id)
+        except Exception:
+            pass
 
     def _save_experience(self, task_id, subtasks, final_score, agents_used, r):
         """L0: Save structured experience for future retrieval"""

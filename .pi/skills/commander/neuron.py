@@ -25,6 +25,10 @@ sys.path.insert(0, "/app/.pi/skills/commander")
 # ── Redis ──
 try:
     from trace_logger import TraceLogger
+from modules.shared.foolproof import (
+    apply_quality_preset, validate_card, validate_in_range,
+    validate_not_empty, safe_default
+)
     import redis as _redis
     HAS_REDIS = True
     nlog = TraceLogger("Neuron")
@@ -145,9 +149,18 @@ class Neuron:
         self.retry_count = 0
         self.task_start_time = 0
         if self.card:
-            self.task_timeout = self.card.get("lifecycle", {}).get("task_timeout", 300)
-            self.max_retries = self.card.get("lifecycle", {}).get("max_retries", 3)
-            log("CARD: " + self.card.get("name","?") + " v" + self.card.get("version","?"))
+            self.task_timeout = validate_in_range(
+                self.card.get("lifecycle", {}).get("task_timeout", 300),
+                "task_timeout", 30, 3600
+            )
+            self.max_retries = validate_in_range(
+                self.card.get("lifecycle", {}).get("max_retries", 3),
+                "max_retries", 1, 10
+            )
+            card_name = validate_not_empty(self.card.get("name", ""), "Agent")
+            card_ver = self.card.get("version", "?")
+            log("CARD: {} v{} timeout={}s retries={}".format(
+                card_name, card_ver, self.task_timeout, self.max_retries))
         # 4. Load Memory
         self._load_memory()
 
@@ -155,20 +168,53 @@ class Neuron:
         self._register()
 
     def _load_capability_card(self) -> dict:
+        """Load capability card + fool-proof validation + quality preset expansion"""
+        card = {}
+        
+        # 1. Load from file
         config_path = os.environ.get("AGENT_CONFIG", "")
         if config_path and os.path.exists(config_path):
             try:
                 with open(config_path) as f:
-                    return json.load(f)
-            except:
-                pass
-        if self.redis:
+                    card = json.load(f)
+            except Exception as e:
+                log(f"Card file load failed: {e}")
+        
+        # 2. Load from Redis (file takes priority)
+        if not card and self.redis:
             try:
                 raw = self.redis.get(f"agent:card:{self.name}")
                 if raw:
-                    return json.loads(raw)
-            except:
+                    card = json.loads(raw)
+            except Exception:
                 pass
+        
+        if not card:
+            return {}
+        
+        # 3. Fool-proof: expand quality preset
+        if "quality" in card:
+            quality = card.pop("quality")
+            try:
+                preset = apply_quality_preset(quality)
+                for k, v in preset.items():
+                    if k not in card:
+                        card[k] = v
+                log("quality={} -> model={} thinking={}".format(
+                    quality, card.get("model","?"), card.get("thinking","?")))
+            except ValueError as e:
+                log(str(e))
+        
+        # 4. Fool-proof: validate card
+        issues = validate_card(card)
+        for issue in issues:
+            log("Card issue: {}".format(issue))
+        
+        # 5. Fool-proof: safe defaults
+        lc = card.setdefault("lifecycle", {})
+        lc.setdefault("task_timeout", safe_default("task_timeout"))
+        lc.setdefault("max_retries", safe_default("max_retries"))
+        
         return {}
 
     def _set_state(self, new_state: str):

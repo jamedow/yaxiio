@@ -1223,7 +1223,34 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         else:
             strategy = "standard"
 
-        # PRIMARY PATH: UnifiedScorer
+        # PRIMARY PATH: Commander 动态评分维度
+        try:
+            from score_registry import ScoreDimensionRegistry
+            registry = ScoreDimensionRegistry(self.commander.redis if self.commander else None)
+            dim_config = registry.get_dimensions(action, plan if isinstance(plan, dict) else {})
+            rule_score = registry.score_output(
+                output_text,
+                dim_config["dimensions"],
+                dim_config["weights"]
+            )
+            label = f"overall={rule_score['overall']} dims={list(rule_score.get('dimensions',{}).keys())}"
+            print(f"[WF] {task_id} L5 Commander评分: {label}", flush=True)
+            result = {
+                "overall": rule_score["overall"],
+                "method": "commander_rule",
+                "verdict": "pass" if rule_score["overall"] >= 7 else ("retry" if rule_score["overall"] >= 4 else "reject"),
+                "sources_used": ["rule"],
+                "dimensions": rule_score.get("dimensions", {}),
+                "signals": rule_score.get("signals", {}),
+                "needs_review": rule_score["overall"] < 7,
+                "needs_evolution": rule_score["overall"] < 5,
+            }
+            self.score_history.append({"task_id": task_id, "score": result["overall"], "ts": time.time()})
+            return result
+        except Exception as e:
+            print(f"[WF] {task_id} Commander评分失败 ({e}), 回退 UnifiedScorer", flush=True)
+
+        # FALLBACK: UnifiedScorer
         try:
             from modules.layer5.unified_scorer import UnifiedScorer
             scorer = UnifiedScorer(redis_client=self.commander.redis if self.commander else None)

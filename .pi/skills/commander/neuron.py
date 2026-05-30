@@ -20,7 +20,14 @@ from datetime import datetime
 
 # 确保可以导入 Commander 模块
 sys.path.insert(0, "/opt/commander")
-sys.path.insert(0, "/app/.pi/skills/commander")
+sys.path.insert(0, "/opt/yaxiio/.pi/skills/commander")
+
+# ── Stream 支持 ──
+try:
+    from stream_bridge import StreamBridge
+    HAS_STREAM = True
+except ImportError:
+    HAS_STREAM = False
 
 # ── Redis ──
 try:
@@ -140,6 +147,15 @@ class Neuron:
         self._load_skill()
         # 3b. Load Capability Card (Agent System v2)
         self.card = self._load_capability_card()
+        # 4. Stream 桥接
+        self.stream = None
+        if HAS_STREAM:
+            try:
+                self.stream = StreamBridge(
+                    redis_host=REDIS_HOST, redis_port=REDIS_PORT,
+                    redis_password=REDIS_PASS)
+            except Exception:
+                pass
         self.state = "IDLE"
         self.state_since = time.time()
         self.retry_count = 0
@@ -290,7 +306,7 @@ class Neuron:
         action = payload.get("action", "unknown")
         reply_to = task.get("replyTo", CONTROL_CH)
 
-        self.log.info("think_and_act", "收到任务", trace_id=trace_id, action=action, task_id=task_id)
+        log(f"RECV {task_id} action={action}")
         self._report_progress(task_id, 5, "开始分析任务")
 
         context = {
@@ -597,6 +613,27 @@ Based on these REAL results, provide your final analysis and findings.
         while self.running:
             pubsub = None
             try:
+                # Stream 优先消费 (消息持久化，不丢失)
+                if self.stream:
+                    try:
+                        stream_tasks = self.stream.consume_task(
+                            self.name, layer="L4", block_ms=1000, count=1)
+                        for task in stream_tasks:
+                            data = task.get("payload", task)
+                            if isinstance(data, str):
+                                data = json.loads(data)
+                            data["_stream"] = task.get("_stream", "")
+                            data["_stream_id"] = task.get("_stream_id", "")
+                            data["_group"] = task.get("_group", "")
+                            try:
+                                self.think_and_act(data)
+                                self.stream.ack_task(self.name, task)
+                            except Exception as e:
+                                log(f"Stream 任务异常: {e}")
+                    except Exception:
+                        pass
+
+                # Pub/Sub 回退
                 pubsub = self.redis.pubsub()
                 pubsub.subscribe(CHANNEL, CONTROL_CH)
                 deadline = time.time() + 55

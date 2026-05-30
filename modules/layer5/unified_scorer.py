@@ -179,42 +179,95 @@ class UnifiedScorer:
             return self._builtin_rule_score(task, result)
 
     def _builtin_rule_score(self, task: dict, result: dict) -> dict:
-        """内置简易规则评分（AutoScorer 不可用时的降级）"""
+        """内置规则评分 — 5维标准, 从输出中提取真实信号"""
         status = result.get("status", "")
         output = str(result.get("output", result.get("stdout", "")))
         subtasks = result.get("subtasks", [])
+        output_len = len(output)
 
-        # 完成度 (40%)
+        # ── 信号提取 ──
+        has_code = "```" in output or "`" in output
+        has_struct = any(m in output for m in ("##", "###", "**", "| ", "1.", "2.", "-"))
+        has_findings = any(kw in output.lower() for kw in
+                          ("发现", "问题", "建议", "结论", "诊断", "分析",
+                           "finding", "issue", "recommend", "diagnos", "analys"))
+        has_report = output.startswith("##") or output.startswith("# ")
+        has_numbers = any(c.isdigit() for c in output[:200])
+        is_long = output_len > 800
+
+        # ── 5维评分 (accuracy/completeness/professionalism/actionability/consistency) ──
+
+        # accuracy: 输出是否准确、有数据支撑
+        accuracy = 5.0
+        if has_findings and has_numbers:
+            accuracy += 2.0
+        if has_struct:
+            accuracy += 1.0
+        if output_len > 1500:
+            accuracy += 1.0
+        if "错误" in output or "error" in output.lower():
+            accuracy += 0.5  # 诚实报告错误也是准确
+
+        # completeness: 是否完整覆盖了任务
         if subtasks:
-            done = sum(1 for s in subtasks
-                       if s.get("status") in ("completed", "success", "dispatched"))
-            completeness = 5.0 + (done / max(len(subtasks), 1)) * 5.0
+            done = sum(1 for s in subtasks if s.get("status") in ("completed", "success", "dispatched"))
+            completeness = 4.0 + (done / max(len(subtasks), 1)) * 6.0
         elif status == "success":
-            completeness = 8.0 if len(output) > 100 else 6.0
+            completeness = 7.0 if is_long else 5.0
+            if has_report:
+                completeness += 1.0
+            if has_findings:
+                completeness += 1.0
         elif status == "failed":
-            completeness = 2.0
+            completeness = 3.0 if output_len > 100 else 2.0
         else:
             completeness = 5.0
 
-        # 输出质量 (30%)
-        quality = min(9.0, 4.0 + len(output) / 500) if output else 3.0
+        # professionalism: 输出格式是否专业
+        professionalism = 5.0
+        if has_report:
+            professionalism += 2.0
+        if has_struct:
+            professionalism += 1.0
+        if is_long:
+            professionalism += 1.0
+        if has_code:
+            professionalism += 0.5
 
-        # 结构分 (30%)
-        has_structure = ("```" in output or "1." in output or
-                         "##" in output or "{" in output)
-        structure = 7.0 if has_structure else 5.0
+        # actionability: 输出是否可执行、有下一步
+        actionability = 5.0
+        if has_findings:
+            actionability += 2.0
+        if has_code:
+            actionability += 1.0
+        if any(kw in output.lower() for kw in ("建议", "下一步", "修正", "recommend", "action")):
+            actionability += 1.5
 
-        overall = round(completeness * 0.4 + quality * 0.3 + structure * 0.3, 1)
+        # consistency: 格式一致性
+        consistency = 6.0
+        if has_report:
+            consistency += 1.5
+        if has_struct and has_numbers:
+            consistency += 1.0
+        if output_len > 1000:
+            consistency += 0.5
+
+        dims = {
+            "accuracy": round(min(10, accuracy), 1),
+            "completeness": round(min(10, completeness), 1),
+            "professionalism": round(min(10, professionalism), 1),
+            "actionability": round(min(10, actionability), 1),
+            "consistency": round(min(10, consistency), 1),
+        }
+        overall = round(sum(dims.values()) / 5, 1)
 
         return {
             "overall": overall,
-            "method": "rule",
-            "dimensions": {
-                "completeness": round(completeness, 1),
-                "quality": round(quality, 1),
-                "structure": round(structure, 1),
-            },
+            "method": "rule_enhanced",
+            "dimensions": dims,
             "issues": [],
+            "signals": {"code": has_code, "struct": has_struct,
+                        "findings": has_findings, "report": has_report},
         }
 
     def _card_score(self, result: dict, agent_card: dict) -> dict:

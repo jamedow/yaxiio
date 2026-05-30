@@ -196,7 +196,12 @@ class WorkflowEngine:
                 from warmup_gate import WarmupGate
                 gate = WarmupGate(self)
                 if gate.should_warmup(payload["_recon"]):
-                    warmup_result = gate.warmup(task_id, payload, payload["_recon"])
+                    # 策略锦标赛 (默认) 或 预热 (串行)
+                    use_tournament = os.environ.get("YAXIIO_TOURNAMENT", "true").lower() == "true"
+                    if use_tournament:
+                        warmup_result = gate.tournament(task_id, payload, payload["_recon"])
+                    else:
+                        warmup_result = gate.warmup(task_id, payload, payload["_recon"])
                     payload["_warmup"] = warmup_result.to_dict()
                     if warmup_result.passed and warmup_result.best_strategy:
                         # 把最优策略注入 payload

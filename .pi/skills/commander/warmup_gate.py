@@ -221,3 +221,44 @@ class WarmupGate:
 
         result.elapsed_ms = int((time.time() - start) * 1000)
         return result
+
+    def tournament(self, task_id: str, payload: dict, recon: dict) -> WarmupResult:
+        """
+        策略锦标赛: 并行试跑多个策略变体, L5评分择最优。
+
+        候选策略:
+          A: 默认 (thinking=medium, 简单流程)
+          B: 深度 (thinking=high, 简单流程)
+          C: LLM拆解 (thinking=medium, 复杂流程)
+        """
+        print(f"[锦标赛] {task_id} 开始策略锦标赛...", flush=True)
+        start = time.time()
+        candidates = [
+            WarmupStrategy(thinking="medium", chunk=10, use_complex=False),
+            WarmupStrategy(thinking="high", chunk=10, use_complex=False),
+            WarmupStrategy(thinking="medium", chunk=10, use_complex=True),
+        ]
+        best_score, best_strategy = 0, None
+        for i, st in enumerate(candidates):
+            sid = f"{task_id}-t{i}"
+            sp = self.extract_sample_payload(payload, recon, st)
+            print(f"[锦标赛] {task_id} 策略{i}: thinking={st.thinking} complex={st.use_complex}", flush=True)
+            try:
+                r = self.wf.process(sid, sp)
+                l5 = r.get("l5_result", {})
+                s = l5.get("overall", 5)
+                print(f"[锦标赛] {task_id} 策略{i}: L5={s}", flush=True)
+                if s > best_score:
+                    best_score, best_strategy = s, st
+            except Exception as e:
+                print(f"[锦标赛] {task_id} 策略{i} 异常: {e}", flush=True)
+        result = WarmupResult()
+        result.rounds_used = len(candidates)
+        result.sample_score = best_score
+        result.passed = best_score >= self.pass_score
+        result.best_strategy = best_strategy
+        result.l5_verdict = "pass" if result.passed else "retry"
+        result.elapsed_ms = int((time.time() - start) * 1000)
+        if best_strategy:
+            print(f"[锦标赛] {task_id} 冠军: thinking={best_strategy.thinking} score={best_score}", flush=True)
+        return result

@@ -214,6 +214,29 @@ class Neuron:
         if msg:
             log(f"PROGRESS {task_id} {pct}%: {msg}")
 
+    def _save_private_notes(self, task_id: str, action: str, thought, result, elapsed: float):
+        """保存私有笔记"""
+        if not self.redis: return
+        try:
+            note = json.dumps({"task_id":task_id,"action":action,"ts":time.time(),"elapsed_s":round(elapsed,1),
+                "thinking":LLM_THINKING,"model":LLM_MODEL,"summary":str(thought)[:500],
+                "tools":[c.get("cmd","")[:80] for c in result.get("executed_commands",[])[:5]]},
+                ensure_ascii=False,default=str)
+            key = f"agent:{self.name}:notes:{action}"
+            self.redis.lpush(key, note)
+            self.redis.ltrim(key, 0, 49)
+            log(f"NOTES saved")
+        except Exception as e:
+            log(f"NOTES error: {e}")
+
+    def _load_private_notes(self, action: str, limit: int = 3) -> list:
+        """加载私有笔记"""
+        if not self.redis: return []
+        try:
+            raw = self.redis.lrange(f"agent:{self.name}:notes:{action}", 0, limit-1)
+            return [json.loads(r) for r in raw if r]
+        except: return []
+
     def _load_skill(self):
         """加载 Skill 作为 system prompt"""
         if not self.skill_name:
@@ -384,6 +407,9 @@ class Neuron:
 
         self.task_count += 1
         elapsed = time.time() - self.task_start_time
+
+        # ── 保存私有笔记 (Agent 经验积累) ──
+        self._save_private_notes(task_id, action, final_thought, result, elapsed)
         if elapsed > self.task_timeout:
             log(f"TIMEOUT {task_id} ({elapsed:.0f}s > {self.task_timeout}s)")
             self._set_state("TIMEOUT")

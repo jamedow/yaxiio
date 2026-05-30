@@ -207,54 +207,50 @@ def friendly_error(operation: str, detail: str, suggestion: str = "") -> str:
 # ═══════════════════════════════════════════════
 
 # ═══════════════════════════════════════════════
-# 七-2、四层用户等级体系 (Four-Tier User Maturity Model)
-# ═══════════════════════════════════════════════
+# 七-2、四层复杂度暴露等级 (Progressive Disclosure Tiers)
+# ==========================================================
+# 这不是权限控制（RBAC），而是渐进式信息披露。
+# 同一份能力卡片，不同等级看到不同数量的字段。
+# 所有人都能做所有操作——区别只是系统替你填了多少参数。
+#
+# 设计参考:
+#   相机: 自动模式(tier1) vs 光圈优先(tier2) vs 全手动(tier4)
+#   VSCode: 设置面板(tier1) vs settings.json(tier4)
+#   macOS: 系统偏好(tier1) vs defaults命令(tier4)
+#
+# 核心理念: 不是"你不能调"，而是"你不用调，我已经调好了"。
 
-USER_TIERS = {
-    1: {"name": "平民级", "label": "Civilian",
-        "description": "不需要任何技术背景。描述任务目标，系统自动完成。",
-        "ui_level": 1,
-        "can": ["提交任务", "查看结果", "选择卡片", "调整 quality"],
-        "cannot": ["修改参数", "创建 Agent", "查看日志", "删除数据"],
-        "max_concurrent_tasks": 3},
-    2: {"name": "维护人员级", "label": "Maintainer",
-        "description": "会看使用说明书，能做一些基础调整。",
-        "ui_level": 2,
-        "can": ["平民级所有权限", "修改常用参数", "查看日志", "重启 Agent", "导出配置"],
-        "cannot": ["修改宪法", "销毁 Core Agent", "修改底层 Schema"],
-        "max_concurrent_tasks": 10},
-    3: {"name": "技术人员级", "label": "Technician",
-        "description": "了解 Yaxiio 各项能力的设计思想，能对深度参数做调优。",
-        "ui_level": 3,
-        "can": ["维护人员级所有权限", "修改所有卡片参数", "创建/销毁 Agent", "调整评分权重", "配置模型路由"],
-        "cannot": ["修改宪法白名单", "修改系统核心代码"],
-        "max_concurrent_tasks": 50},
-    4: {"name": "大神级", "label": "Master",
-        "description": "对 Yaxiio 的设计思想和实现方式有深入了解，能进行底层调优甚至重构。",
-        "ui_level": 4,
-        "can": ["技术人员级所有权限", "修改宪法", "修改系统核心代码", "自定义协议", "联邦部署"],
-        "cannot": [],
-        "max_concurrent_tasks": 200},
+COMPLEXITY_TIERS = {
+    1: {"name": "平民级",
+        "description": "只需要描述任务目标。系统自动搞定一切。",
+        "visible_field_level": 1,
+        "auto_fill": True},
+    2: {"name": "维护人员级",
+        "description": "会看说明书。能调常用的几个参数。",
+        "visible_field_level": 2,
+        "auto_fill": True},
+    3: {"name": "技术人员级",
+        "description": "了解设计思想。能精确控制每个参数。",
+        "visible_field_level": 3,
+        "auto_fill": False},
+    4: {"name": "大神级",
+        "description": "深入理解实现。能改底层 Schema。",
+        "visible_field_level": 99,
+        "auto_fill": False},
 }
 
-def get_tier(tier_id: int) -> dict:
-    """获取用户等级定义。无效 ID 返回平民级（安全默认）。"""
-    return USER_TIERS.get(tier_id, USER_TIERS[1])
+def get_complexity_tier(tier_id: int) -> dict:
+    """获取复杂度等级。无效ID默认平民级——宁可少显示，也不吓到用户。"""
+    return COMPLEXITY_TIERS.get(tier_id, COMPLEXITY_TIERS[1])
 
-def check_permission(tier_id: int, action: str) -> tuple:
-    """检查某等级用户是否可以执行某操作。返回 (allowed, message)。"""
-    tier = get_tier(tier_id)
-    if action in tier["can"]:
-        return True, ""
-    if action in tier.get("cannot", []):
-        for tid in sorted(USER_TIERS):
-            if tid > tier_id and action in USER_TIERS[tid]["can"]:
-                hint = f" 升级到「{USER_TIERS[tid]['name']}」即可使用此功能。"
-                return False, f"「{tier['name']}」不支持「{action}」。{hint}"
-        return False, f"「{tier['name']}」不支持「{action}」。"
-    return True, ""
+# 字段可见性等级（标注能力卡片中每个字段的展示层级）
+FIELD_LEVEL = {
+    "basic": 1,       # 平民级可见: quality, description
+    "common": 2,      # 维护级可见: model, thinking, temperature
+    "advanced": 3,    # 技术级可见: few_shot, custom_schema
+    "internal": 4,    # 大神级可见: _ui_meta, protocol
+}
 
-# 字段可见性级别（适配四层体系）
 UI_LEVEL = {
     "basic": 1,       # 平民级可见
     "advanced": 2,    # 维护人员级可见
@@ -262,9 +258,9 @@ UI_LEVEL = {
     "master": 4,      # 大神级可见
 }
 
-def get_visible_fields(card: dict, user_tier: int = 1) -> dict:
+def get_visible_fields(card: dict, complexity_tier: int = 1) -> dict:
     """
-    根据用户等级过滤能力卡片字段。
+    根据复杂度等级渐进式披露字段（不是权限控制）。
     
     user_level=1 → 只显示 basic 字段 (3-5个)
     user_level=2 → 显示 basic + advanced 字段 (8-12个)
@@ -278,7 +274,8 @@ def get_visible_fields(card: dict, user_tier: int = 1) -> dict:
         if key.startswith("_"):
             continue
         field_level = meta.get(key, {}).get("ui_level", UI_LEVEL["developer"])
-        if field_level <= user_tier:
+        tier_info = get_complexity_tier(complexity_tier)
+        if field_level <= tier_info.get("visible_field_level", 1):
             visible[key] = value
     return visible
 

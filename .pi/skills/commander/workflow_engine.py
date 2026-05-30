@@ -114,6 +114,19 @@ class WorkflowEngine:
             redis_client=self.commander.redis if self.commander else None
         )
 
+        # ── L5: Experience Flywheel ──
+        from modules.layer5.experience_flywheel import ExperienceFlywheel
+        try:
+            from modules.layer1.vector_store_chroma import ChromaVectorStore
+            _fw_vs = ChromaVectorStore()
+        except Exception:
+            from modules.layer1.vector_store import MemVectorStore
+            _fw_vs = MemVectorStore()
+        self.flywheel = ExperienceFlywheel(
+            redis_client=self.commander.redis if self.commander else None,
+            vector_store=_fw_vs
+        )
+
 
     def process(self, task_id: str, payload: dict):
         if MCP_LAYERS_ENABLED.get("L1"):
@@ -649,7 +662,7 @@ class WorkflowEngine:
                     return subtasks
         except Exception as e:
             print("[WF] %s L2 MCP failed: %s" % (task_id, str(e)[:50]), flush=True)
-        return self._llm_decompose(task_id, payload, experience_context)
+        return self._llm_decompose(task_id, payload, experience_context, _primary_agent)
 
     # ==============================================
     # L0 Memory Layer: experience retrieval + web knowledge
@@ -724,13 +737,7 @@ class WorkflowEngine:
 
         # ── Primary: ExperienceFlywheel ──
         try:
-            from modules.layer5.experience_flywheel import ExperienceFlywheel
-            from modules.layer1.vector_store_chroma import ChromaVectorStore
-            _vs = ChromaVectorStore()
-            flywheel = ExperienceFlywheel(
-                redis_client=self.commander.redis,
-                vector_store=_vs
-            )
+            flywheel = self.flywheel
             flywheel.save_experience(
                 task_id=task_id,
                 task_description=str(self._current_intent or ""),
@@ -742,7 +749,7 @@ class WorkflowEngine:
             )
             print(f"[WF] {task_id} flywheel: {len(agents_used)} agents, score={final_score}", flush=True)
         except Exception as _e:
-            print(f"[WF] {task_id} flywheel failed ({_e}), fallback to l0", flush=True)
+            print(f"[WF] {task_id} flywheel failed, fallback to l0", flush=True)
             # Fallback to legacy L0 storage
             try:
                 import redis as _r
@@ -806,7 +813,7 @@ class WorkflowEngine:
             lines.append(f"- {status} **{st['action']}** ({st['agent']}): {output}")
         return "\n".join(lines)
 
-    def _llm_decompose(self, task_id: str, payload: dict, experience_context: str = "") -> list:
+    def _llm_decompose(self, task_id: str, payload: dict, experience_context: str = "", primary_agent: str = None) -> list:
         """LLM decompose with data-driven batch parallelism"""
         import re
         task_desc = payload.get("task", json.dumps(payload, ensure_ascii=False)[:500])
@@ -854,6 +861,8 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
 """
         if experience_context:
             prompt += experience_context[:1200] + "\n\n"
+        if primary_agent:
+            prompt += f"Hint: best matching agent is {primary_agent}\n\n"
         prompt += "Task: " + task_desc[:400]
 
         try:

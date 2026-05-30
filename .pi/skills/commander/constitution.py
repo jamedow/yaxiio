@@ -64,19 +64,28 @@ class YaxiioConstitution:
     }
 
     # ── 违禁行为: Commander 禁止直接执行（必须走流水线） ──
-    FORBIDDEN_DIRECT: set = {
-        "site_audit",
-        "site_fix",
-        "site_evolve",
-        "site_drill",
-        "site_build",
-        "site_deploy",
-        "site_inquire",
-        "translate_mongodb",
-        "translate_all_pages",
-        "generate_quote",
-        "send_email",
-    }
+    FORBIDDEN_DIRECT: set = None  # Lazy-loaded from Redis or defaults
+
+    def _load_forbidden_actions(self):
+        """Load forbidden actions from Redis config, fallback to defaults"""
+        if self.FORBIDDEN_DIRECT is not None:
+            return
+        if self.redis:
+            try:
+                raw = self.redis.get("yaxiio:config:forbidden_actions")
+                if raw:
+                    self.FORBIDDEN_DIRECT = set(json.loads(raw))
+                    return
+            except Exception:
+                pass
+        # Hardcoded defaults (generic, not industry-specific)
+        self.FORBIDDEN_DIRECT = {
+            "site_audit", "site_fix", "site_evolve", "site_drill",
+            "site_build", "site_deploy",
+            "site_inquire",
+            "generate_quote", "send_email",
+            "translate_mongodb", "translate_all_pages",
+        }
 
     # ── 高危操作模式: 匹配到就降级到 sandbox ──
     DANGEROUS_PATTERNS = [
@@ -108,6 +117,7 @@ class YaxiioConstitution:
         Verdict.REJECTED  → 违宪，拒绝执行
         Verdict.DEGRADED  → 高危操作，强制走 sandbox 降级
         """
+        self._load_forbidden_actions()
         self.total_checks += 1
 
         # ── 规则1: 系统白名单 ──

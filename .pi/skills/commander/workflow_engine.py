@@ -764,29 +764,9 @@ class WorkflowEngine:
         return {"assignments": assignments, "total_assigned": len(assignments), "method": "fallback"}
 
     def _check_and_heal(self, task_id: str, subtasks: list, results: dict):
-        """故障检测: 同一 Agent 连续失败 > 2 次 → 派系统医生"""
-        agent_failures = {}
-        for st in subtasks:
-            sid = st["id"]
-            r = results.get(sid, {})
-            if not r.get("ok"):
-                agent = st.get("agent", "unknown")
-                agent_failures[agent] = agent_failures.get(agent, 0) + 1
-
-        for agent, count in agent_failures.items():
-            if count >= 2 and self.commander:
-                failure_type = "low_quality"
-                # 检查是否是超时
-                for st in subtasks:
-                    if st.get("agent") == agent and results.get(st["id"], {}).get("error") == "timeout":
-                        failure_type = "slow_response"
-                        break
-
-                print(f"[WF] 🏥 {agent} 连续失败 {count} 次, 派系统医生 (type={failure_type})", flush=True)
-                self.commander.handle_agent_failure(
-                    agent, failure_type, task_id,
-                    details=f"连续{count}个子任务失败"
-                )
+        """故障检测 — 委托给 workflow_utils_extracted"""
+        from workflow_utils_extracted import check_and_heal
+        check_and_heal(task_id, subtasks, results, self.commander)
 
     def _cleanup_task(self, task_id: str, subtasks: list, final_score: int):
         """Post-task cleanup: ExperienceFlywheel + destroy memory"""
@@ -1154,153 +1134,8 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
 
     def _build_plan(self, primary_intent: str, action: str,
                     payload: dict, arsenal_tools: list) -> dict:
-        if primary_intent in INTENT_TOOL_MAP:
-            plan = dict(INTENT_TOOL_MAP[primary_intent])
-            plan["match_type"] = "exact"
-            plan["intent"] = primary_intent
-            return plan
-        for ik, ti in INTENT_TOOL_MAP.items():
-            if ik in primary_intent or primary_intent in ik:
-                plan = dict(ti)
-                plan["match_type"] = "fuzzy"
-                plan["intent"] = primary_intent
-                return plan
-        if action in (arsenal_tools or []):
-            return {"tool": action, "agent": "审计官", "desc": f"tool:{action}",
-                    "match_type": "direct", "intent": primary_intent}
-        return {"tool": None, "agent": "审计官", "desc": f"通用:{action}",
-                "match_type": "fallback", "intent": primary_intent, "command": f"echo 'task'"}
+        """构建计划 — 委托给 workflow_utils_extracted"""
+        from workflow_utils_extracted import build_plan
+        return build_plan(primary_intent, action, payload, arsenal_tools, INTENT_TOOL_MAP)
 
-    def _get_llm(self, task_type: str = "default", task_desc: str = ""):
-        """LLM client with IntelligentModelRouter + auto-fallback"""
-        if self.commander:
-            try:
-                # Use IntelligentModelRouter (cost x latency x capability)
-                if hasattr(self, "model_router_v2") and self.model_router_v2:
-                    task_info = {"action": task_type, "description": task_desc or task_type}
-                    cfg = self.model_router_v2.select(task_info)
-                    model = cfg.get("model", task_type)
-                    thinking = cfg.get("thinking", "medium")
-                    print("[WF] model router: {} (thinking={}, score={})".format(
-                        model, thinking, cfg.get("score", 0)), flush=True)
-                else:
-                    model = task_type
-                    thinking = "medium"
-                return self.commander._get_llm(model, thinking)
-            except Exception as _e:
-                # Auto-fallback to next provider
-                try:
-                    if hasattr(self, "model_router_v2") and self.model_router_v2:
-                        fb = self.model_router_v2.fallback(model if "model" in dir() else task_type)
-                        if fb:
-                            print("[WF] model fallback to: {}".format(fb.get("model","?")), flush=True)
-                            return self.commander._get_llm(fb["model"], "off")
-                except Exception:
-                    pass
-                try:
-                    return self.commander._get_llm()
-                except Exception:
-                    pass
-        return None
-
-    def _call_llm(self, prompt: str, timeout: float = 30.0) -> str:
-        llm = self._get_llm()
-        if not llm: raise RuntimeError("LLM unavailable")
-        if self.commander:
-            from yaxiio import async_loop
-            return async_loop.run_coro(llm.chat(prompt), timeout=timeout)
-        import asyncio
-        loop = asyncio.new_event_loop()
-        try: return loop.run_until_complete(llm.chat(prompt))
-        finally: loop.close()
-
-    @staticmethod
-    def _bump_thinking(current: str) -> str:
-        """升级 thinking: off→low→medium→high→max"""
-        order = ["off", "low", "medium", "high", "max"]
-        try:
-            idx = order.index(current)
-            return order[min(idx + 1, len(order) - 1)]
-        except ValueError:
-            return "high"
-
-    # ═══════════════════════════════════════════════
-    # 目标自检: 差距分析 + 子任务生成
-    # ═══════════════════════════════════════════════
-
-    def _analyze_gap(self, task_id: str, payload: dict, results: dict, l5_scores: dict) -> dict:
-        """Gap analysis using UniversalGapAnalyzer — zero industry hardcoding"""
-        try:
-            from modules.layer5.gap_analyzer_v2 import UniversalGapAnalyzer
-            analyzer = UniversalGapAnalyzer()
-
-            # Load agent card
-            agent_card = None
-            try:
-                if self.commander and self.commander.redis:
-                    primary_agent = l5_scores.get("primary_agent", "\u5ba1\u8ba1\u5b98")
-                    card_raw = self.commander.redis.get(f"agent:card:{primary_agent}")
-                    if card_raw:
-                        agent_card = json.loads(card_raw)
-            except Exception:
-                pass
-
-            return analyzer.analyze(
-                task={"action": payload.get("action", ""),
-                      "description": str(payload.get("task", ""))[:300]},
-                results=results,
-                l5_scores=l5_scores,
-                agent_card=agent_card,
-            )
-        except Exception as e:
-            print(f"[WF] UniversalGapAnalyzer failed ({e}), fallback to legacy", flush=True)
-            return self.gap.analyze(task_id, payload, results, l5_scores)
-
-    def _detect_content_issues(self, results: dict) -> dict:
-        """Parse subtask outputs for concrete content problems"""
-        import re
-        issues = {"mixed_lang": 0, "empty_fields": 0, "missing_pages": 0, "truncated": 0}
-        for sid, res in results.items():
-            output = str(res.get("output", ""))
-            for line in output.split("\n"):
-                if "mixed" in line.lower() or "混杂" in line:
-                    nums = re.findall(r"(\d{3,})", line)
-                    if nums: issues["mixed_lang"] = max(issues["mixed_lang"], int(nums[0]))
-                if "empty" in line.lower() or "空字段" in line:
-                    if "empty" in line.lower():
-                        nums = re.findall(r"(\d{3,})", line)
-                        if nums: issues["empty_fields"] = max(issues["empty_fields"], int(nums[0]))
-                if "missing" in line.lower() or "缺页" in line:
-                    nums = re.findall(r"(\d+)", line)
-                    if nums and int(nums[0]) < 1000:
-                        issues["missing_pages"] = max(issues["missing_pages"], int(nums[0]))
-        return issues
-
-    def _gap_to_subtasks(self, task_id: str, gap: dict, payload: dict, round_num: int) -> list:
-        """Convert gap analysis into executable subtasks"""
-        next_actions = gap.get("next_actions", [])
-        if not next_actions:
-            return []
-
-        subtasks = []
-        for i, action in enumerate(next_actions):
-            sid = "s%d_%d" % (round_num, i+1)
-            agent = action.get("agent", "审计官")
-            action_name = action.get("action", action.get("description", "continue"))
-            subtasks.append({
-                "id": sid,
-                "action": action_name[:60],
-                "agent": agent,
-                "depends": action.get("depends", []),
-                "prompt": action.get("prompt", action.get("description", action_name))[:500],
-                "tool": action.get("tool", "")
-            })
-
-    def stats(self) -> dict:
-        with self._lock: active_count = len(self.active)
-        with self._count_lock: total = self.task_count
-        recent = [s["score"] for s in self.score_history[-20:]]
-        return {"active_workflows": active_count, "total_processed": total,
-                "avg_score": round(sum(recent)/len(recent),2) if recent else 0,
-                "evolution_queue": len(self.evolution_queue())}
 

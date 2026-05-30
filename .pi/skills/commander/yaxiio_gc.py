@@ -211,6 +211,12 @@ class YaxiioGC:
         self.stats["last_run"] = time.time()
         self.stats["runs"] += 1
 
+        # 写入 Redis 供 Dashboard 读取
+        try:
+            self.redis.set("yaxiio:gc:stats", json.dumps(self.stats, ensure_ascii=False))
+        except Exception:
+            pass
+
         if acked or tasks or traces or progress:
             print(f"[GC] 清理: stream={acked} tasks={tasks} traces={traces} progress={progress}", flush=True)
 

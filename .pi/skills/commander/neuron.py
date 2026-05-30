@@ -141,7 +141,7 @@ class Neuron:
             except Exception as e:
                 log(f"⚠️ LLM 连接失败: {e}")
         else:
-            log(f"⚠️ 无 LLM (key={yes if api_key else no})")
+            log(f"🚨 严重: 无可用 API Key! LLM调用将全部失败. 请检查Redis yaxiio:config:llm_api_key")
 
         # 3. Load Skill
         self._load_skill()

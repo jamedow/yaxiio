@@ -502,6 +502,24 @@ class Commander:
         if not api_key:
             api_key = os.environ.get("DEEPSEEK_API_KEY", os.environ.get("LLM_API_KEY", ""))
 
+        # 鲁棒性: Key 为空时立即告警
+        if not api_key or api_key.strip() == "":
+            print(f"[雅溪] 🚨 严重: API Key 为空! Neuron {name} 将无法工作. 请检查 Redis yaxiio:config:llm_api_key", flush=True)
+            # 尝试最后一次从环境变量中获取
+            for env_var in ("DEEPSEEK_API_KEY", "LLM_API_KEY", "OPENAI_API_KEY"):
+                val = os.environ.get(env_var, "")
+                if val and val.strip():
+                    api_key = val
+                    print(f"[雅溪] 从环境变量 {env_var} 获取到 Key", flush=True)
+                    # 回写到 Redis
+                    try:
+                        self.redis.client.set("yaxiio:config:llm_api_key", api_key)
+                    except Exception:
+                        pass
+                    break
+            if not api_key:
+                print(f"[雅溪] 🔴 所有 Key 源均不可用, Neuron 将无法调用 LLM!", flush=True)
+
         # Key 健康检查: 快速验证 API Key 是否有效
         if api_key and not self._verify_api_key(api_key):
             print(f"[雅溪] ⚠️ API Key 失效, 尝试备用Key...", flush=True)

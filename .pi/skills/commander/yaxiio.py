@@ -206,7 +206,7 @@ class Commander:
             self._publish_result(tid, data, {
                 "error": f"宪法拒绝: {reason}",
                 "verdict": "rejected",
-                "constitution_advice": "请通过五层 MCP 流水线提交此任务"
+                "constitution_advice": "该操作被宪法拒绝。请通过 Dashboard 或 API 提交任务，系统将自动走 L1→L5 流水线。如有疑问，查看 /opt/yaxiio/docs/CONSTITUTION.md"
             }, "rejected")
             return
 
@@ -551,7 +551,8 @@ class Commander:
 
     def _recover_inflight(self):
         """断点恢复: 重启后扫描未完成任务，重新调度"""
-        from task_state_machine import TaskStateMachine
+        from modules.shared.foolproof import safe_default, validate_in_range
+from task_state_machine import TaskStateMachine
         sm = TaskStateMachine()
         inflight = sm.list_inflight()
         if not inflight:

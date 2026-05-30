@@ -11,6 +11,7 @@ from mcp_bridge import call_layer
 from mcp.protocol import MCPClient
 
 # 状态机
+from modules.shared.foolproof import safe_default, validate_in_range
 from task_state_machine import TaskStateMachine
 from trace_logger import TraceLogger
 from modules.shared.config import MCP_LAYERS_ENABLED
@@ -23,7 +24,7 @@ MCP_CLIENTS = {i: MCPClient(f"http://{MCP_HOST}:{3400+i}") for i in range(1, 6)}
 SANDBOX_BASE = "/tmp/yaxiio-sandbox"
 SANDBOX_MAX_SIZE_MB = 500
 SANDBOX_TIMEOUT = 300
-POLL_TIMEOUT = 120
+POLL_TIMEOUT = safe_default('task_timeout')  # 防呆: 使用集中管理的默认值
 POLL_INTERVAL = 2
 
 # ── 意图映射表 ──
@@ -312,6 +313,11 @@ class WorkflowEngine:
             # L2: 任务拆解 (优先 MCP, 降级 LLM)
             print(f"[WF] {task_id} L2 planning via MCP...", flush=True)
             subtasks = self._decompose_via_l2(task_id, payload)
+            # 防呆: 限制子任务数量
+            max_subtasks = safe_default('subtask_max_count')
+            if len(subtasks) > max_subtasks:
+                print(f"[WF] {task_id} 子任务过多 ({len(subtasks)}), 截断到 {max_subtasks}", flush=True)
+                subtasks = subtasks[:max_subtasks]
             state["subtasks"] = subtasks
             state["template_used"] = "l2_mcp" if len(subtasks) > 1 else "llm_fallback"
             self.sm.complete_layer(task_id, "L2_planning",

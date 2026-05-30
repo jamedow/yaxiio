@@ -115,3 +115,24 @@ def legacy_l5_score(engine, task_id, action, plan, l4, state, output_text, agent
               "verdict": "pass" if base_overall >= 7 else ("retry" if base_overall >= 4 else "reject")}
     engine.score_history.append({"task_id": task_id, "score": base_overall, "ts": time.time()})
     return result
+
+
+def extract_output_text(l4: dict) -> str:
+    """Extract output text from various L4 result formats — pure function"""
+    output_text = ""
+    if l4.get("results") and isinstance(l4["results"], dict):
+        parts = []
+        for sid, r in sorted(l4["results"].items()):
+            out = str(r.get("output", r.get("summary", "")))[:300]
+            if out: parts.append(out)
+        output_text = "
+---
+".join(parts)
+    if not output_text and l4.get("summary"):
+        output_text = str(l4["summary"])[:3000]
+    if not output_text:
+        if isinstance(l4.get("result"), dict):
+            output_text = str(l4["result"].get("output", l4["result"].get("summary", "")))
+    if not output_text:
+        output_text = str(l4.get("stdout", l4.get("output", "")))
+    return output_text

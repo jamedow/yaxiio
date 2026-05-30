@@ -104,6 +104,7 @@ class WorkflowEngine:
 
         # ── L3: Async Orchestrator + Redis Data Bus ──
         from modules.layer3.async_orchestrator import AsyncOrchestrator
+        from workflow_l1 import L1Handler
         from modules.layer3.redis_data_bus import RedisDataBus
         self.async_orch = AsyncOrchestrator(
             commander=self.commander,
@@ -111,6 +112,7 @@ class WorkflowEngine:
             total_timeout=float(os.environ.get("YAXIIO_TASK_TIMEOUT", "600")),
             subtask_timeout=float(os.environ.get("YAXIIO_SUBTASK_TIMEOUT", "120")),
         )
+        self.l1_handler = L1Handler()
         self.data_bus = RedisDataBus(
             redis_client=self.commander.redis if self.commander else None
         )
@@ -952,29 +954,8 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
         return [{"id":"s1","action":"execute","agent":"审计官","depends":[],"prompt":task_desc[:300]}]
 
     def _do_L1(self, task_id: str, payload: dict) -> dict:
-        """L1 感知"""
-        print(f"[WF] {task_id} L1 感知...", flush=True)
-        l1_text = {k: v for k, v in payload.items() if not k.startswith("_")}
-        l1 = call_layer(1, "analyze_intent", text=json.dumps(l1_text, ensure_ascii=False))
-        state = {"l1_result": l1}
-
-        primary = l1.get("primary_intent", "general")
-        confidence = l1.get("confidence", 0.5)
-        action = payload.get("action", "")
-        action_clean = action.replace("site_", "").replace("translate_", "")
-
-        if action_clean in INTENT_TOOL_MAP:
-            primary = action_clean
-            confidence = 0.99
-            state["l1_action_override"] = True
-        elif action in INTENT_TOOL_MAP:
-            primary = action
-            confidence = 0.99
-            state["l1_action_override"] = True
-
-        state["primary_intent"] = primary
-        state["confidence"] = confidence
-        return state
+        """L1 感知 — 委托给 L1Handler"""
+        return self.l1_handler.analyze(task_id, payload)
 
     def _do_L2(self, task_id: str, payload: dict, state: dict, arsenal_tools: list) -> dict:
         """L2 规划"""

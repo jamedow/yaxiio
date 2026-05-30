@@ -1072,6 +1072,17 @@ Available agents: 审计官(audit), 品牌策略师(brand/strategy), 翻译官(t
     def _build_plan(self, primary_intent: str, action: str,
                     payload: dict, arsenal_tools: list) -> dict:
         """构建计划 — 委托给 workflow_utils_extracted"""
-        return build_plan(primary_intent, action, payload, arsenal_tools, INTENT_TOOL_MAP)
+        if primary_intent in INTENT_TOOL_MAP:
+            plan = dict(INTENT_TOOL_MAP[primary_intent])
+            plan["match_type"] = "exact"
+            plan["intent"] = primary_intent
+            return plan
+        for ik, ti in INTENT_TOOL_MAP.items():
+            if ik in primary_intent or primary_intent in ik:
+                plan = dict(ti)
+                plan["match_type"] = "fuzzy"
+                plan["intent"] = primary_intent
+                return plan
+        return {"tool": None, "agent": "审计官", "desc": f"通用:{action}", "match_type": "fallback", "intent": primary_intent}
 
 

@@ -17,6 +17,7 @@ import json
 import time
 import os
 from typing import Dict, List, Optional
+from modules.shared.foolproof import try_primary_fallback, QUALITY_PRESETS
 
 
 class UnifiedScorer:
@@ -99,6 +100,16 @@ class UnifiedScorer:
                 }
             }
         """
+        # 防呆: quality 自动映射到评分策略
+        if agent_card and "quality" in agent_card:
+            quality_map = {"fast": "fast", "standard": "standard", "premium": "deep"}
+            strategy = quality_map.get(agent_card["quality"], strategy)
+        
+        # 防呆: quality 自动映射到评分策略
+        if agent_card and "quality" in agent_card:
+            quality_map = {"fast": "fast", "standard": "standard", "premium": "deep"}
+            strategy = quality_map.get(agent_card["quality"], strategy)
+        
         cfg = self.STRATEGIES.get(strategy, self.STRATEGIES["standard"])
         scores_from_sources = {}
         all_dimensions = {}
@@ -255,7 +266,6 @@ class UnifiedScorer:
         """LLM-as-Judge 深度评分"""
         try:
             from modules.layer4.llm_judge import LLMJudge
-from modules.shared.foolproof import try_primary_fallback, QUALITY_PRESETS
             if not self._llm_judge:
                 self._llm_judge = LLMJudge(
                     llm_client=self._get_llm_client(),

@@ -22,13 +22,16 @@ from datetime import datetime
 sys.path.insert(0, "/opt/commander")
 sys.path.insert(0, "/app/.pi/skills/commander")
 
-# ── Redis ──
-try:
-    from trace_logger import TraceLogger
+# ── Fool-proof ──
 from modules.shared.foolproof import (
+    get_complexity_tier, COMPLEXITY_TIERS,
     apply_quality_preset, validate_card, validate_in_range,
     validate_not_empty, safe_default
 )
+
+# ── Redis ──
+try:
+    from trace_logger import TraceLogger
     import redis as _redis
     HAS_REDIS = True
     nlog = TraceLogger("Neuron")
@@ -214,6 +217,24 @@ class Neuron:
         lc = card.setdefault("lifecycle", {})
         lc.setdefault("task_timeout", safe_default("task_timeout"))
         lc.setdefault("max_retries", safe_default("max_retries"))
+        
+        # 6. Apply complexity tier (progressive disclosure)
+        tier_id = int(os.environ.get("YAXIIO_COMPLEXITY_TIER", "1"))
+        tier = get_complexity_tier(tier_id)
+        card["_complexity_tier"] = tier_id
+        if tier.get("auto_fill", True):
+            # Auto-fill missing params from quality preset
+            if "quality" not in card:
+                card["quality"] = "standard"
+            preset = apply_quality_preset(card["quality"])
+            for k, v in preset.items():
+                if k not in card:
+                    card[k] = v
+            log("T{}: {} - auto_fill from quality={}".format(
+                tier_id, tier["name"], card.get("quality", "?")))
+        else:
+            log("T{}: {} - manual control (no auto_fill)".format(
+                tier_id, tier["name"]))
         
         return {}
 

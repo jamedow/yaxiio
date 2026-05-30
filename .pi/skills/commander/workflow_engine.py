@@ -173,9 +173,26 @@ class WorkflowEngine:
         if MCP_LAYERS_ENABLED.get("L1"):
             return {"mcp_routed": True, "layer": "L1", "phase": "not_implemented", "task_id": task_id}
 
-        """入口: 判断是简单任务还是复杂任务，走不同流程"""
+        """入口: 慢思考策略 → 复杂度判断 → 分流程"""
         action = payload.get("action", "unknown")
         action_clean = action.replace("site_", "").replace("translate_", "")
+
+        # ── 任务侦察: 探测体量、范围、复杂度，决定后续策略 ──
+        if not payload.get("_is_sample") and not payload.get("_skip_recon"):
+            try:
+                from task_recon import TaskReconnaissance
+                recon = TaskReconnaissance(self.commander)
+                recon_report = recon.scout(task_id, payload)
+                payload["_recon"] = recon_report.to_dict()
+                recs = recon_report.recommendations
+                if recs.get("suggested_timeout"):
+                    payload["_suggested_timeout"] = recs["suggested_timeout"]
+                if recs.get("max_concurrent"):
+                    payload["_suggested_concurrent"] = recs["max_concurrent"]
+                if recs.get("chunk_size"):
+                    payload["_chunk_size"] = recs["chunk_size"]
+            except Exception as e:
+                print(f"[WF] {task_id} 侦察异常 ({e}), 跳过", flush=True)
 
         intent_info = INTENT_TOOL_MAP.get(action_clean) or INTENT_TOOL_MAP.get(action, {})
         is_complex = intent_info.get("complex", False) or len(str(payload.get("task", ""))) > 150 or any(n in str(payload.get("task","")).lower() for n in ["split","batch","parallel","entries","pending"])

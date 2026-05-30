@@ -171,12 +171,19 @@ class UnifiedScorer:
     # ═══════════════════════════════════════════════
 
     def _rule_score(self, task: dict, result: dict) -> dict:
-        """规则评分 — 优先使用 AutoScorer，不可用时内置简易评分"""
+        """规则评分 — 优先内置增强规则, AutoScorer 作为补充"""
+        # 先用内置增强规则（5维标准）
+        builtin = self._builtin_rule_score(task, result)
+        # 尝试 AutoScorer 补充
         try:
             from modules.layer4.auto_scorer import AutoScorer
-            return AutoScorer().score(task, result)
+            auto = AutoScorer().score(task, result)
+            # 取两者中较高的分数
+            if auto.get("overall", 0) > builtin.get("overall", 0):
+                return auto
         except ImportError:
-            return self._builtin_rule_score(task, result)
+            pass
+        return builtin
 
     def _builtin_rule_score(self, task: dict, result: dict) -> dict:
         """内置规则评分 — 5维标准, 从输出中提取真实信号"""

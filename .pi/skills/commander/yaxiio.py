@@ -493,6 +493,15 @@ class Commander:
         except Exception:
             pass  # 能力卡片不存在时静默降级
 
+        # 从 Redis 读取 API Key（优先，环境变量兜底）
+        api_key = ""
+        try:
+            api_key = self.redis.client.get("yaxiio:config:llm_api_key") or ""
+        except Exception:
+            pass
+        if not api_key:
+            api_key = os.environ.get("DEEPSEEK_API_KEY", os.environ.get("LLM_API_KEY", ""))
+
         env = {
             **os.environ,
             "AGENT_NAME": name,
@@ -501,7 +510,8 @@ class Commander:
             "TASK_ID": task_id,
             "LLM_MODEL": model,
             "LLM_THINKING": thinking,
-            "LLM_API_KEY": os.environ.get("DEEPSEEK_API_KEY", os.environ.get("LLM_API_KEY", "")),
+            "LLM_API_KEY": api_key,
+            "DEEPSEEK_API_KEY": api_key,
             "TRACE_ID": task_id,
             "REDIS_HOST": "127.0.0.1",
             "REDIS_PORT": "6379",

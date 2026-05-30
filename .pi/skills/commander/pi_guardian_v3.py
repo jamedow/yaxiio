@@ -427,11 +427,36 @@ class CommanderManager:
         except: pass
         cls.comm_proc = subprocess.Popen(
             [sys.executable, script_path],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             env={**os.environ, "PYTHONUNBUFFERED": "1"},
             cwd=os.path.dirname(script_path),
         )
+        # 增大 pipe buffer 到 1MB，防止 Commander 大量输出时阻塞
+        try:
+            import fcntl
+            PIPE_BUF = 1048576  # 1MB
+            fcntl.fcntl(cls.comm_proc.stdout.fileno(), 1031, PIPE_BUF)  # F_SETPIPE_SZ
+        except Exception:
+            pass
+
+        # 健壮的 reader 线程：持续读取 Commander stdout，异常时自动重启
+        def _read_commander_output():
+            while True:
+                try:
+                    for line in iter(cls.comm_proc.stdout.readline, b""):
+                        text = line.decode(errors="replace").rstrip()
+                        if text:
+                            log(f"[Commander] {text}", "CMD")
+                except Exception:
+                    time.sleep(1)
+                # 如果进程已退出，readline 返回 b""，结束循环
+                if cls.comm_proc and cls.comm_proc.poll() is not None:
+                    break
+
+        import threading
+        t = threading.Thread(target=_read_commander_output, daemon=True)
+        t.start()
         Path(COMMANDER_PID_FILE).write_text(str(cls.comm_proc.pid))
         return True
 

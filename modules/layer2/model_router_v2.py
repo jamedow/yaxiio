@@ -246,15 +246,20 @@ class IntelligentModelRouter:
         return True
 
     def _determine_thinking(self, best: dict, required: dict) -> str:
-        """决定是否启用 thinking 模式"""
+        """决定是否启用 thinking 模式 — 根据任务类型和复杂度动态选择"""
         caps = best.get("caps", {})
         if not caps.get("supports_thinking", False):
             return "off"
         task_type = required.get("task_type", "general")
-        if task_type in ("analyze", "audit"):
-            return "high"
+        complexity = required.get("complexity", "medium")
+        # 审计类任务默认 medium（high 太慢容易超时），只有大型项目才用 high
+        if task_type in ("audit", "analyze"):
+            return "high" if complexity == "high" else "medium"
         if task_type in ("translate",):
             return "off"
+        # 高复杂度任务用 high thinking
+        if complexity == "high":
+            return "high"
         return "medium"
 
     def _explain_selection(self, best: dict, required: dict) -> str:

@@ -38,9 +38,9 @@ from typing import Dict, Optional
 
 AGENT_DEFAULTS = {
     # 深度分析型 → 需要推理
-    "审计官":       {"model": "deepseek-chat", "thinking": "high"},
-    "系统医生":     {"model": "deepseek-chat", "thinking": "high"},
-    "品牌策略师":   {"model": "deepseek-chat", "thinking": "high"},
+    "审计官":       {"model": "deepseek-chat", "thinking": "medium"},
+    "系统医生":     {"model": "deepseek-chat", "thinking": "medium"},
+    "品牌策略师":   {"model": "deepseek-chat", "thinking": "medium"},
 
     # 创意生成型 → 平衡
     "UI/UX设计师":  {"model": "deepseek-chat", "thinking": "medium"},
@@ -62,8 +62,8 @@ AGENT_DEFAULTS = {
 
 AGENT_TASK_CONFIG = {
     "审计官": {
-        "audit":        {"model": "deepseek-chat", "thinking": "high"},
-        "diagnose":     {"model": "deepseek-chat", "thinking": "high"},
+        "audit":        {"model": "deepseek-chat", "thinking": "medium"},
+        "diagnose":     {"model": "deepseek-chat", "thinking": "medium"},
         "fix":          {"model": "deepseek-chat", "thinking": "medium"},
         "drill":        {"model": "deepseek-chat", "thinking": "medium"},
     },

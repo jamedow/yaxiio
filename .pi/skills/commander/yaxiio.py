@@ -462,6 +462,20 @@ class Commander:
             if thinking is None:
                 thinking = "medium"
 
+        # 飞轮自适应：如果 Agent 最近频繁超时，自动降级 thinking
+        if thinking in ("high", "max"):
+            try:
+                from modules.layer5.experience_flywheel import ExperienceFlywheel
+                fw = ExperienceFlywheel(redis_client=self.redis.client, vector_store=None)
+                credit = fw.get_agent_credit(name)
+                if credit < 4.0:
+                    thinking = "medium"
+                    print(f"[雅溪] ⚠️ {name} credit={credit:.1f} 偏低, thinking降级: high→medium", flush=True)
+                elif credit < 7.0:
+                    thinking = "high"  # 保持，但已经是 high
+            except Exception:
+                pass
+
         # Phase 5: 能力卡片 → AGENT_CONFIG 环境变量
         agent_config_path = ""
         try:

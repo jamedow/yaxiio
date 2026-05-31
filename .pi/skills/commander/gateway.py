@@ -473,9 +473,16 @@ class CommanderV3:
 
     async def _run_http_server(self):
         """启动 HTTP 服务器。"""
-        from aiohttp import web
+        import traceback
+        try:
+            from aiohttp import web
+        except Exception as _e:
+            print(f"[CommanderV3] ❌ HTTP import failed: {_e}")
+            traceback.print_exc()
+            return
 
-        app = web.Application()
+        try:
+            app = web.Application()
 
         # ── 会话管理 API ──
         async def api_register(request):
@@ -651,9 +658,12 @@ class CommanderV3:
 
         print(f"[CommanderV3] 🌐 HTTP API: http://0.0.0.0:{self.http_port}")
 
-        # 保持运行
-        while self._running:
-            await asyncio.sleep(1)
+            # 保持运行
+            while self._running:
+                await asyncio.sleep(1)
+        except Exception as _e:
+            print(f"[CommanderV3] ❌ HTTP server crashed: {_e}")
+            traceback.print_exc()
 
     # ═══════════════════════════════════════════════════════════
     # 定时任务
